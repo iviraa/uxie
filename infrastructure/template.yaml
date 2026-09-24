@@ -32,7 +32,7 @@ Globals:
   Function:
     Runtime: python3.12
     Architectures: [arm64]
-    CodeUri: ../
+    CodeUri: ../src
     Environment:
       Variables:
         LOG_LEVEL: INFO

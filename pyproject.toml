@@ -12,12 +12,15 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "SIM"]
 
 [tool.mypy]
+mypy_path = "src"
+exclude = ["bench/cache/"]
 python_version = "3.12"
 strict_optional = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/conftest.py" = ["W293"]  # diff fixture needs a whitespace-only context line

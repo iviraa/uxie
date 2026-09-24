@@ -30,3 +30,4 @@ NOTES.md
 .DS_Store
 .idea/
 .vscode/
+bench/cases.jsonl

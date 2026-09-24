@@ -1,12 +1,14 @@
-.PHONY: install lint test build deploy bench-seed bench-run bench-score clean
+.PHONY: install lint test build deploy clean
+
+export PYTHONPATH := src:.
 
 install:
-	pip install -r requirements.txt -r requirements-dev.txt
+	pip install -r requirements-dev.txt
 
 lint:
 	ruff check .
 	ruff format --check .
-	mypy critic lambdas bench
+	mypy src/critic src/lambdas bench
 
 test:
 	pytest -q
