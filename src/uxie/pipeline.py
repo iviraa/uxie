@@ -81,7 +81,21 @@ def run(
         if result.error:
             raise RuntimeError(result.error)
 
-        review_id = _post(gh, job, head, result.summary, result.findings)
+        # re-reviews only post what's new; an explicit /review always gets a reply
+        own = [
+            r.get("body") or ""
+            for r in gh.list_reviews(job.repo, job.pr_number)
+            if render.is_own_review(r.get("body") or "")
+        ]
+        comments = [c.get("body") or "" for c in gh.list_review_comments(job.repo, job.pr_number)]
+        seen = render.fingerprints_in(comments + own)  # bodies hold fingerprints after a 422
+        fresh = [f for f in result.findings if f.fingerprint not in seen]
+        repeats = len(result.findings) - len(fresh)
+        reviewed_before = bool(own)
+        review_id = 0
+        if fresh or force or not reviewed_before:
+            note = f"{repeats} earlier finding(s) still apply." if repeats else ""
+            review_id = _post(gh, job, head, result.summary, fresh, note)
         out = result.to_dict() | {"model_id": cfg.model_id, "mode": cfg.mode}
         store.finish(
             job.repo,
@@ -90,6 +104,7 @@ def run(
             "done",
             review_id=review_id,
             finding_count=len(result.findings),
+            new_finding_count=len(fresh),
             cost_usd=result.cost_usd,
             latency_s=result.latency_s,
             findings=[f.to_dict() for f in result.findings],
@@ -115,13 +130,15 @@ def run(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _post(gh: GitHubClient, job: ReviewJob, head: str, summary: str, findings: list) -> int:
+def _post(
+    gh: GitHubClient, job: ReviewJob, head: str, summary: str, findings: list, note: str = ""
+) -> int:
     try:
         resp = gh.create_review(
             job.repo,
             job.pr_number,
             head,
-            render.review_body(summary, findings),
+            render.review_body(summary, findings, note),
             render.inline_comments(findings),
         )
     except httpx.HTTPStatusError as e:
@@ -129,6 +146,7 @@ def _post(gh: GitHubClient, job: ReviewJob, head: str, summary: str, findings: l
             raise
         # GitHub rejected an anchor; fall back to listing findings in the body
         listed = "\n".join(f"- `{f.path}:{f.line}` {render.comment_body(f)}" for f in findings)
+        listed = f"{note}\n\n{listed}" if note else listed
         resp = gh.create_review(
             job.repo, job.pr_number, head, render.review_body(summary, findings, listed), []
         )

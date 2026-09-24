@@ -47,3 +47,13 @@ def test_validate_orders_by_severity_and_caps():
 def test_parse_clamps_and_defaults_enums():
     (f,) = parse_findings([_raw(severity="critical", category="nit", confidence=4)])
     assert (f.severity, f.category, f.confidence) == ("medium", "bug", 1.0)
+
+
+def test_fingerprint_survives_line_shift():
+    from uxie.diff.patch import parse_patch as pp
+
+    shifted = PATCH.replace("@@ -1,4 +1,5 @@", "@@ -11,4 +11,5 @@")
+    a, _ = validate(parse_findings([_raw(line=3)]), [pp("a.py", PATCH)], 0.5, 10)
+    b, _ = validate(parse_findings([_raw(line=13)]), [pp("a.py", shifted)], 0.5, 10)
+    c, _ = validate(parse_findings([_raw(line=4)]), [pp("a.py", PATCH)], 0.5, 10)
+    assert a[0].fingerprint == b[0].fingerprint != c[0].fingerprint

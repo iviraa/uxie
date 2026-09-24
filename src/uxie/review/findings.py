@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -23,9 +24,18 @@ class Finding:
     confidence: float
     suggestion: str = ""
     snapped_from: int | None = None  # original line if we moved it onto the diff
+    fingerprint: str = ""  # stable across pushes; used to avoid reposting
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def fingerprint(f: Finding, fp: FilePatch) -> str:
+    """Hash of file, category and the flagged line's text (line numbers shift between pushes)."""
+    text = next((ln.text for ln in fp.lines if ln.new_no == f.line), "")
+    norm = " ".join(text.split())
+    key = f"{f.path}|{f.category}|{norm}"
+    return hashlib.sha1(key.encode()).hexdigest()[:12]
 
 
 def parse_findings(raw: list[dict[str, Any]]) -> list[Finding]:
@@ -79,6 +89,7 @@ def validate(
             stats["dupe"] += 1
             continue
         seen.add((f.path, f.line))
+        f.fingerprint = fingerprint(f, fp)
         kept.append(f)
     kept.sort(key=lambda f: (_SEV_RANK[f.severity], -f.confidence))
     stats["capped"] = max(0, len(kept) - max_comments)

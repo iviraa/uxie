@@ -53,7 +53,8 @@ class Lake:
     def write_review(self, job: dict[str, Any], result: dict[str, Any]) -> None:
         now = datetime.now(UTC)
         review, findings = review_rows(job, result, now)
-        name = review["review_id"].replace("/", "_").replace("#", "_")
+        # timestamped so a /review rerun of the same sha adds a row instead of overwriting
+        name = review["review_id"].replace("/", "_").replace("#", "_") + f"_{now:%H%M%S}"
         self._put(f"{PREFIX}/reviews/{partition(now)}/{name}.json", [review])
         if findings:
             self._put(f"{PREFIX}/findings/{partition(now)}/{name}.json", findings)

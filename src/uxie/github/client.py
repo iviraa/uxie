@@ -42,8 +42,11 @@ class GitHubClient:
         return self._request("GET", f"/repos/{repo}/pulls/{number}").json()
 
     def list_pr_files(self, repo: str, number: int) -> list[dict[str, Any]]:
+        return self._paginate(f"/repos/{repo}/pulls/{number}/files?per_page=100")
+
+    def _paginate(self, first: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        url: str | None = f"/repos/{repo}/pulls/{number}/files?per_page=100"
+        url: str | None = first
         while url:
             resp = self._request("GET", url)
             out.extend(resp.json())
@@ -62,6 +65,12 @@ class GitHubClient:
         if len(roots) != 1:
             raise RuntimeError("unexpected tarball layout")
         return roots[0]
+
+    def list_review_comments(self, repo: str, number: int) -> list[dict[str, Any]]:
+        return self._paginate(f"/repos/{repo}/pulls/{number}/comments?per_page=100")
+
+    def list_reviews(self, repo: str, number: int) -> list[dict[str, Any]]:
+        return self._paginate(f"/repos/{repo}/pulls/{number}/reviews?per_page=100")
 
     def create_review(
         self, repo: str, number: int, commit_id: str, body: str, comments: list[dict[str, Any]]

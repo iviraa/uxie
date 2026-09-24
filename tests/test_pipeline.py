@@ -22,6 +22,7 @@ class FakeGH:
     def __init__(self, head="abc", draft=False, patch=PATCH, reject_first=False):
         self.head, self.draft, self.patch, self.reject_first = head, draft, patch, reject_first
         self.reviews: list[dict] = []
+        self.inline: list[dict] = []  # posted review comments, as GitHub would list them
 
     def get_pr(self, repo, n):
         return {
@@ -52,7 +53,14 @@ class FakeGH:
                 "422", request=req, response=httpx.Response(422, request=req)
             )
         self.reviews.append({"sha": sha, "body": body, "comments": comments})
+        self.inline += comments
         return {"id": 555}
+
+    def list_review_comments(self, repo, n):
+        return self.inline
+
+    def list_reviews(self, repo, n):
+        return self.reviews
 
 
 class FakeStore:
@@ -132,3 +140,31 @@ def test_failure_marks_failed_and_reraises(tmp_path, cfg):
     with pytest.raises(IndexError):
         pipeline.run(_job(), FakeGH(), broken, cfg, store, None, tmp_path / "w")
     assert store.finished[-1][0] == "failed"
+
+
+def _run(gh, cfg, tmp_path, trigger="opened"):
+    return pipeline.run(_job(trigger=trigger), gh, _model(), cfg, FakeStore(), None, tmp_path / "w")
+
+
+def test_rereview_does_not_repost_same_finding(tmp_path, cfg):
+    gh = FakeGH()
+    _run(gh, cfg, tmp_path)
+    _run(gh, cfg, tmp_path)  # new push, same bug still there
+    assert len(gh.reviews) == 1  # quiet: nothing new to say
+
+
+def test_command_always_replies_and_notes_repeats(tmp_path, cfg):
+    gh = FakeGH()
+    _run(gh, cfg, tmp_path)
+    _run(gh, cfg, tmp_path, trigger="command")
+    assert len(gh.reviews) == 2
+    assert gh.reviews[1]["comments"] == []
+    assert "1 earlier finding(s) still apply" in gh.reviews[1]["body"]
+
+
+def test_clean_pr_gets_one_review_then_stays_quiet(tmp_path, cfg):
+    gh = FakeGH()
+    for _ in range(2):
+        empty = FakeModel([tool_turn("submit_review", {"summary": "ok", "findings": []})])
+        pipeline.run(_job(), gh, empty, cfg, FakeStore(), None, tmp_path / "w")
+    assert len(gh.reviews) == 1 and "no defects found" in gh.reviews[0]["body"]
