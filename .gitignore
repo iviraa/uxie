@@ -1,0 +1,32 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# sam / aws
+.aws-sam/
+samconfig.toml
+infrastructure/parameters.json
+
+# secrets
+.env
+.env.*
+*.pem
+
+# bench artifacts (large, regenerated)
+bench/cache/
+bench/results/*.jsonl
+
+# agent + scratch notes
+CLAUDE.md
+.claude/
+NOTES.md
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,23 @@
+[project]
+name = "critic"
+version = "0.1.0"
+description = "PR review agent on AWS: webhook -> SQS -> Bedrock reviewer -> inline GitHub comments"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict_optional = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["W293"]  # diff fixture needs a whitespace-only context line
