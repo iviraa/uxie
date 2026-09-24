@@ -47,6 +47,12 @@ class ReviewResult:
         }
 
 
+def _cached(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cache point on the newest message so each turn reuses the whole prior prefix."""
+    last = messages[-1]
+    return [*messages[:-1], {**last, "content": [*last["content"], CACHE_POINT]}]
+
+
 def review(
     pr: PullRequest,
     ws: Workspace,
@@ -66,7 +72,6 @@ def review(
     first: list[dict[str, Any]] = [{"text": prompts.user_prompt(pr.title, pr.body, rendered)}]
     if cache:
         system.append(CACHE_POINT)
-        first.append(CACHE_POINT)
     messages: list[dict[str, Any]] = [{"role": "user", "content": first}]
 
     calls: list[dict[str, Any]] = []
@@ -78,7 +83,7 @@ def review(
         if turn >= max_turns:
             force = True
         choice = {"tool": {"name": "submit_review"}} if force else {"auto": {}}
-        resp = model.converse(system, messages, specs, choice)
+        resp = model.converse(system, _cached(messages) if cache else messages, specs, choice)
         usage.add(resp.usage)
         messages.append({"role": "assistant", "content": resp.content})
 

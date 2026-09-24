@@ -76,3 +76,17 @@ def test_never_submits_is_an_error(tmp_path, cfg):
     model = FakeModel([text_turn("no")] * 10)
     res = review(_pr(), _ws(tmp_path), model, replace(cfg, max_tool_turns=1))
     assert res.error == "no submit_review"
+
+
+def test_cache_point_moves_to_newest_message(tmp_path, cfg):
+    model = FakeModel(
+        [
+            tool_turn("list_dir", {}, "u1"),
+            tool_turn("submit_review", {"summary": "s", "findings": []}, "u2"),
+        ]
+    )
+    review(_pr(), _ws(tmp_path), model, cfg)
+    for call in model.calls:
+        msgs = call["messages"]
+        marks = [i for i, m in enumerate(msgs) for b in m["content"] if "cachePoint" in b]
+        assert marks == [len(msgs) - 1]
