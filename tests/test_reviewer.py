@@ -90,3 +90,16 @@ def test_cache_point_moves_to_newest_message(tmp_path, cfg):
         msgs = call["messages"]
         marks = [i for i, m in enumerate(msgs) for b in m["content"] if "cachePoint" in b]
         assert marks == [len(msgs) - 1]
+
+
+def test_rate_limiter_spaces_calls(monkeypatch):
+    from critic.review import model as m
+
+    clock = [100.0]
+    slept: list[float] = []
+    monkeypatch.setattr(m.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(m.time, "sleep", lambda s: slept.append(s))
+    lim = m.RateLimiter(rpm=6)  # one call per 10s
+    for _ in range(3):
+        lim.wait()
+    assert slept == [0.0, 10.0, 20.0]

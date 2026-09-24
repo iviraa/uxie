@@ -83,8 +83,19 @@ def hits(case: Case, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def latest(variant: str) -> list[dict[str, Any]]:
+    """One row per case: the last success, else the last error (runs are append-only)."""
+    best: dict[str, dict[str, Any]] = {}
+    for ln in (RESULTS / f"{variant}.jsonl").read_text().splitlines():
+        r = json.loads(ln)
+        prev = best.get(r["case_id"])
+        if prev is None or prev.get("error") or not r.get("error"):
+            best[r["case_id"]] = r
+    return list(best.values())
+
+
 def score(variant: str, cases: dict[str, Case]) -> Score:
-    rows = [json.loads(ln) for ln in (RESULTS / f"{variant}.jsonl").read_text().splitlines()]
+    rows = latest(variant)
     s = Score(variant, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, [], 0)
     for r in rows:
         case = cases.get(r["case_id"])
@@ -112,8 +123,7 @@ def score(variant: str, cases: dict[str, Case]) -> Score:
 
 def by_op(variant: str, cases: dict[str, Case]) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
-    for ln in (RESULTS / f"{variant}.jsonl").read_text().splitlines():
-        r = json.loads(ln)
+    for r in latest(variant):
         case = cases.get(r["case_id"])
         if not case or not case.mutation or r.get("error"):
             continue

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -54,9 +56,26 @@ class ChatModel(Protocol):
     ) -> Turn: ...
 
 
+class RateLimiter:
+    """Spaces calls evenly to stay under a requests-per-minute quota. Thread-safe."""
+
+    def __init__(self, rpm: float) -> None:
+        self._interval = 60.0 / rpm if rpm > 0 else 0.0
+        self._next = 0.0
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next)
+            self._next = slot + self._interval
+        time.sleep(max(0.0, slot - now))
+
+
 class BedrockModel:
-    def __init__(self, model_id: str, region: str | None = None) -> None:
+    def __init__(self, model_id: str, region: str | None = None, rpm: float = 0) -> None:
         self.model_id = model_id
+        self._limiter = RateLimiter(rpm)
         self._client = boto3.client(
             "bedrock-runtime",
             region_name=region,
@@ -74,6 +93,7 @@ class BedrockModel:
         tool_config: dict[str, Any] = {"tools": tools}
         if tool_choice:
             tool_config["toolChoice"] = tool_choice
+        self._limiter.wait()
         resp = self._client.converse(
             modelId=self.model_id,
             system=system,

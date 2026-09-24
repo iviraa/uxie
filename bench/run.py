@@ -29,6 +29,10 @@ def run_case(case: Case, model: BedrockModel, cfg: ReviewSettings) -> dict:
     return {"case_id": case.id, **res.to_dict()}
 
 
+def _rows(path: Path) -> list[dict]:
+    return [json.loads(ln) for ln in path.read_text().splitlines()] if path.exists() else []
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cases", type=Path, default=Path("bench/cases.jsonl"))
@@ -42,6 +46,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--region", default="us-east-2")
+    ap.add_argument("--rpm", type=float, default=9, help="stay under the account's Bedrock quota")
     args = ap.parse_args()
 
     cfg = ReviewSettings(
@@ -56,18 +61,14 @@ def main() -> None:
     )
     out = RESULTS / f"{args.variant}.jsonl"
     out.parent.mkdir(exist_ok=True)
-    done = (
-        {json.loads(ln)["case_id"] for ln in out.read_text().splitlines()}
-        if out.exists()
-        else set()
-    )
+    done = {r["case_id"] for r in _rows(out) if not r.get("error")}
     cases = [c for c in load(args.cases) if c.id not in done]
     if args.limit:
         cases = cases[: args.limit]
     meta = {"variant": args.variant, "mode": args.mode, "model": args.model}
     print(f"{args.variant}: {len(cases)} to run, {len(done)} already done")
 
-    model = BedrockModel(args.model, args.region)
+    model = BedrockModel(args.model, args.region, args.rpm)
     lock = threading.Lock()
     spent = 0.0
     with ThreadPoolExecutor(args.workers) as pool, out.open("a") as fh:
