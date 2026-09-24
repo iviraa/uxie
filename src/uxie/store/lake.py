@@ -8,7 +8,7 @@ from typing import Any
 
 import boto3
 
-PREFIX = "processed/critic"
+PREFIX = "processed/uxie"
 
 
 def partition(when: datetime) -> str:

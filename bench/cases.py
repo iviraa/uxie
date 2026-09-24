@@ -9,9 +9,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from bench.mutate import Mutation
-from critic.diff import filters
-from critic.diff.patch import make_patch, parse_patch
-from critic.review.reviewer import PullRequest
+from uxie.diff import filters
+from uxie.diff.patch import make_patch, parse_patch
+from uxie.review.reviewer import PullRequest
 
 CACHE = Path(__file__).parent / "cache"
 

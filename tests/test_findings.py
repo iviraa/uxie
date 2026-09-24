@@ -1,6 +1,6 @@
-from critic.diff.patch import parse_patch
-from critic.review.findings import parse_findings, validate
 from tests.conftest import PATCH
+from uxie.diff.patch import parse_patch
+from uxie.review.findings import parse_findings, validate
 
 
 def _raw(**kw):

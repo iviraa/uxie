@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from critic.review.workspace import Workspace
+from uxie.review.workspace import Workspace
 
 SEVERITIES = ["high", "medium", "low"]
 CATEGORIES = ["bug", "security", "performance", "concurrency", "error-handling"]

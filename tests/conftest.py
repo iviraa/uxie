@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from critic.common.config import ReviewSettings
-from critic.review.model import Turn
+from uxie.common.config import ReviewSettings
+from uxie.review.model import Turn
 
 PATCH = """@@ -1,4 +1,5 @@
  def f(xs):

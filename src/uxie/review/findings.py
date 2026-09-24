@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from critic.diff.patch import FilePatch
-from critic.review.tools import CATEGORIES, SEVERITIES
+from uxie.diff.patch import FilePatch
+from uxie.review.tools import CATEGORIES, SEVERITIES
 
 SNAP_DISTANCE = 3
 _SEV_RANK = {"high": 0, "medium": 1, "low": 2}

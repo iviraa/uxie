@@ -12,10 +12,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from bench.cases import Case, load, materialize
-from critic.common.config import ReviewSettings
-from critic.review.model import BedrockModel
-from critic.review.reviewer import review
-from critic.review.workspace import Workspace
+from uxie.common.config import ReviewSettings
+from uxie.review.model import BedrockModel
+from uxie.review.reviewer import review
+from uxie.review.workspace import Workspace
 
 RESULTS = Path(__file__).parent / "results"
 DEFAULT_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"

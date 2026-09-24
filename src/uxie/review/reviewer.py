@@ -6,12 +6,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from critic.common.config import ReviewSettings
-from critic.diff.patch import FilePatch
-from critic.review import prompts, tools
-from critic.review.findings import Finding, parse_findings, validate
-from critic.review.model import ChatModel, Usage
-from critic.review.workspace import Workspace
+from uxie.common.config import ReviewSettings
+from uxie.diff.patch import FilePatch
+from uxie.review import prompts, tools
+from uxie.review.findings import Finding, parse_findings, validate
+from uxie.review.model import ChatModel, Usage
+from uxie.review.workspace import Workspace
 
 CACHE_POINT = {"cachePoint": {"type": "default"}}
 

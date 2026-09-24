@@ -23,6 +23,7 @@ def test_score_counts(tmp_path, monkeypatch):
             _case("s2", "seeded"),
             _case("c1", "clean"),
             _case("c2", "clean"),
+            _case("s3", "seeded"),  # only ever errored
         ]
     }
     rows = [

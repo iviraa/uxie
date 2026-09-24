@@ -9,9 +9,9 @@ from typing import Any
 
 import boto3
 
-from critic.common import config
-from critic.common.logger import get_logger, log
-from critic.github.webhook import route, verify_signature
+from uxie.common import config
+from uxie.common.logger import get_logger, log
+from uxie.github.webhook import route, verify_signature
 
 logger = get_logger(__name__)
 _sqs = boto3.client("sqs")

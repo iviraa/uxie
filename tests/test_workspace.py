@@ -1,6 +1,6 @@
 import pytest
 
-from critic.review.workspace import Workspace
+from uxie.review.workspace import Workspace
 
 
 @pytest.fixture

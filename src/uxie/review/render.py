@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from critic.review.findings import Finding
+from uxie.review.findings import Finding
 
 _SEV_ICON = {"high": "🔴", "medium": "🟠", "low": "🟡"}
-FOOTER = "<sub>reviewed by critic</sub>"
+FOOTER = "<sub>reviewed by uxie</sub>"
 
 
 def comment_body(f: Finding) -> str:
@@ -25,9 +25,9 @@ def inline_comments(findings: list[Finding]) -> list[dict[str, Any]]:
 
 def review_body(summary: str, findings: list[Finding], note: str = "") -> str:
     head = (
-        f"**critic review:** {len(findings)} finding(s)"
+        f"**uxie review:** {len(findings)} finding(s)"
         if findings
-        else ("**critic review:** no defects found")
+        else ("**uxie review:** no defects found")
     )
     parts = [head, "", summary.strip()]
     if note:

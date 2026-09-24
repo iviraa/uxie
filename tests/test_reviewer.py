@@ -1,9 +1,9 @@
 from dataclasses import replace
 
-from critic.diff.patch import parse_patch
-from critic.review.reviewer import PullRequest, review
-from critic.review.workspace import Workspace
 from tests.conftest import PATCH, FakeModel, text_turn, tool_turn
+from uxie.diff.patch import parse_patch
+from uxie.review.reviewer import PullRequest, review
+from uxie.review.workspace import Workspace
 
 FINDING = {
     "path": "a.py",
@@ -93,7 +93,7 @@ def test_cache_point_moves_to_newest_message(tmp_path, cfg):
 
 
 def test_rate_limiter_spaces_calls(monkeypatch):
-    from critic.review import model as m
+    from uxie.review import model as m
 
     clock = [100.0]
     slept: list[float] = []

@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 GITHUB_API = "https://api.github.com"
-USER_AGENT = "critic/0.1"
+USER_AGENT = "uxie/0.1"
 MAX_TARBALL_BYTES = 200 * 1024 * 1024
 
 

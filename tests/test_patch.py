@@ -1,6 +1,6 @@
-from critic.diff import filters
-from critic.diff.patch import make_patch, parse_patch
 from tests.conftest import PATCH
+from uxie.diff import filters
+from uxie.diff.patch import make_patch, parse_patch
 
 
 def test_line_numbers_track_new_file():

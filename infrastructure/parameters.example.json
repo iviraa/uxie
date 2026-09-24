@@ -1,6 +1,6 @@
 {
   "LogsStackName": "github-logs",
-  "AppSecretArn": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:critic/github-app-XXXXXX",
+  "AppSecretArn": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:uxie/github-app-XXXXXX",
   "BedrockModelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   "ReviewMode": "context",
   "PriceInPerMTok": "1.0",

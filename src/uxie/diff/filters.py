@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 
-from critic.diff.patch import FilePatch
+from uxie.diff.patch import FilePatch
 
 SKIP_GLOBS = (
     "*.lock",

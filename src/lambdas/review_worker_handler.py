@@ -7,15 +7,15 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from critic import pipeline
-from critic.common import config
-from critic.common.logger import get_logger, log
-from critic.github.app_auth import installation_token
-from critic.github.client import GitHubClient
-from critic.github.webhook import ReviewJob
-from critic.review.model import BedrockModel
-from critic.store.lake import Lake
-from critic.store.reviews import ReviewStore
+from uxie import pipeline
+from uxie.common import config
+from uxie.common.logger import get_logger, log
+from uxie.github.app_auth import installation_token
+from uxie.github.client import GitHubClient
+from uxie.github.webhook import ReviewJob
+from uxie.review.model import BedrockModel
+from uxie.store.lake import Lake
+from uxie.store.reviews import ReviewStore
 
 logger = get_logger(__name__)
 

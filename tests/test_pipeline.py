@@ -3,9 +3,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from critic import pipeline
-from critic.github.webhook import ReviewJob
 from tests.conftest import PATCH, FakeModel, tool_turn
+from uxie import pipeline
+from uxie.github.webhook import ReviewJob
 
 FINDING = {
     "path": "a.py",

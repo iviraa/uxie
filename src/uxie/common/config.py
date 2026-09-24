@@ -61,7 +61,7 @@ def app_secret_arn() -> str:
 
 
 def workspace_root() -> str:
-    return os.environ.get("WORKSPACE_ROOT", "/tmp/critic")
+    return os.environ.get("WORKSPACE_ROOT", "/tmp/uxie")
 
 
 @lru_cache(maxsize=4)

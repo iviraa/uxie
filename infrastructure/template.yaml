@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: critic - PR review agent (webhook -> SQS FIFO -> Bedrock reviewer -> GitHub review)
+Description: uxie - PR review agent (webhook -> SQS FIFO -> Bedrock reviewer -> GitHub review)
 
 Parameters:
   LogsStackName:
@@ -42,7 +42,7 @@ Resources:
   ReviewsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: critic-reviews
+      TableName: uxie-reviews
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: PK
@@ -60,14 +60,14 @@ Resources:
   ReviewDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: critic-reviews-dlq.fifo
+      QueueName: uxie-reviews-dlq.fifo
       FifoQueue: true
       MessageRetentionPeriod: 1209600  # 14 days
 
   ReviewQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: critic-reviews.fifo
+      QueueName: uxie-reviews.fifo
       FifoQueue: true
       VisibilityTimeout: 960  # > worker timeout so a running review isn't redelivered
       RedrivePolicy:
@@ -131,7 +131,7 @@ Resources:
             - Effect: Allow
               Action: s3:PutObject
               Resource: !Sub
-                - "arn:aws:s3:::${Bucket}/processed/critic/*"
+                - "arn:aws:s3:::${Bucket}/processed/uxie/*"
                 - Bucket: !ImportValue
                     Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
       Events:
@@ -181,14 +181,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
       Policies:
-        - PolicyName: ReadCriticPrefix
+        - PolicyName: ReadUxiePrefix
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action: s3:GetObject
                 Resource: !Sub
-                  - "arn:aws:s3:::${Bucket}/processed/critic/*"
+                  - "arn:aws:s3:::${Bucket}/processed/uxie/*"
                   - Bucket: !ImportValue
                       Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
               - Effect: Allow
@@ -201,19 +201,19 @@ Resources:
   LakeCrawler:
     Type: AWS::Glue::Crawler
     Properties:
-      Name: critic-lake-crawler
+      Name: uxie-lake-crawler
       Role: !GetAtt LakeCrawlerRole.Arn
       DatabaseName: !ImportValue
         Fn::Sub: "${LogsStackName}-AnalyticsDatabaseName"
-      TablePrefix: critic_
+      TablePrefix: uxie_
       Targets:
         S3Targets:
           - Path: !Sub
-              - "s3://${Bucket}/processed/critic/reviews/"
+              - "s3://${Bucket}/processed/uxie/reviews/"
               - Bucket: !ImportValue
                   Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
           - Path: !Sub
-              - "s3://${Bucket}/processed/critic/findings/"
+              - "s3://${Bucket}/processed/uxie/findings/"
               - Bucket: !ImportValue
                   Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
       Schedule:

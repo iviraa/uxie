@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 
-from critic.github.webhook import route, verify_signature
+from uxie.github.webhook import route, verify_signature
 
 
 def _sig(secret: str, body: bytes) -> str:

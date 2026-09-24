@@ -13,7 +13,7 @@ from typing import Any
 
 from bench.cases import Case, changed_paths, git, show
 from bench.mutate import mutate
-from critic.diff.patch import make_patch, parse_patch
+from uxie.diff.patch import make_patch, parse_patch
 
 MIN_ADDED, MAX_ADDED = 5, 400
 

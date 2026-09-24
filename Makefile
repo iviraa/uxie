@@ -8,7 +8,7 @@ install:
 lint:
 	ruff check .
 	ruff format --check .
-	mypy src/critic src/lambdas bench
+	mypy src/uxie src/lambdas bench
 
 test:
 	pytest -q
@@ -18,7 +18,7 @@ build:
 
 deploy: build
 	sam deploy -t .aws-sam/build/template.yaml \
-		--stack-name critic \
+		--stack-name uxie \
 		--capabilities CAPABILITY_IAM \
 		--resolve-s3 \
 		--parameter-overrides $$(jq -r 'to_entries | map("\(.key)=\(.value)") | join(" ")' infrastructure/parameters.json)

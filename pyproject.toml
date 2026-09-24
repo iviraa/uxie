@@ -1,5 +1,5 @@
 [project]
-name = "critic"
+name = "uxie"
 version = "0.1.0"
 description = "PR review agent on AWS: webhook -> SQS -> Bedrock reviewer -> inline GitHub comments"
 requires-python = ">=3.12"

@@ -9,18 +9,18 @@ from typing import Any
 
 import httpx
 
-from critic.common.config import ReviewSettings
-from critic.common.logger import get_logger, log
-from critic.diff import filters
-from critic.diff.patch import FilePatch, parse_patch
-from critic.github.client import GitHubClient
-from critic.github.webhook import ReviewJob
-from critic.review import render
-from critic.review.model import ChatModel
-from critic.review.reviewer import PullRequest, review
-from critic.review.workspace import Workspace
-from critic.store.lake import Lake
-from critic.store.reviews import ReviewStore
+from uxie.common.config import ReviewSettings
+from uxie.common.logger import get_logger, log
+from uxie.diff import filters
+from uxie.diff.patch import FilePatch, parse_patch
+from uxie.github.client import GitHubClient
+from uxie.github.webhook import ReviewJob
+from uxie.review import render
+from uxie.review.model import ChatModel
+from uxie.review.reviewer import PullRequest, review
+from uxie.review.workspace import Workspace
+from uxie.store.lake import Lake
+from uxie.store.reviews import ReviewStore
 
 logger = get_logger(__name__)
 
