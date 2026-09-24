@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: critic - PR review agent (webhook -> SQS FIFO -> Bedrock reviewer -> GitHub review)
+
+Parameters:
+  LogsStackName:
+    Type: String
+    Default: github-logs
+    Description: Stack whose data lake (S3 + Glue database) this stack writes into.
+  AppSecretArn:
+    Type: String
+    Description: 'Secrets Manager secret with {"app_id", "private_key", "webhook_secret"}.'
+  BedrockModelId:
+    Type: String
+    Description: Bedrock inference profile id for the reviewer.
+  ReviewMode:
+    Type: String
+    Default: context
+    AllowedValues: [baseline, context]
+  PriceInPerMTok:
+    Type: String
+    Default: "1.0"
+    Description: USD per million input tokens for the chosen model (cost accounting only).
+  PriceOutPerMTok:
+    Type: String
+    Default: "5.0"
+  AlertEmail:
+    Type: String
+    Description: Where dead-letter alarms go.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    CodeUri: ../
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        APP_SECRET_ARN: !Ref AppSecretArn
+
+Resources:
+  ReviewsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: critic-reviews
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  ReviewDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: critic-reviews-dlq.fifo
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  ReviewQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: critic-reviews.fifo
+      FifoQueue: true
+      VisibilityTimeout: 960  # > worker timeout so a running review isn't redelivered
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ReviewDLQ.Arn
+        maxReceiveCount: 3
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: python3.12
+    Properties:
+      Handler: lambdas.webhook_handler.lambda_handler
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          REVIEW_QUEUE_URL: !Ref ReviewQueue
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ReviewQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref AppSecretArn
+      Events:
+        Webhook:
+          Type: HttpApi
+          Properties:
+            Path: /webhook
+            Method: POST
+
+  ReviewWorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: python3.12
+    Properties:
+      Handler: lambdas.review_worker_handler.lambda_handler
+      MemorySize: 2048
+      Timeout: 900
+      EphemeralStorage:
+        Size: 4096  # repo snapshots land in /tmp
+      Environment:
+        Variables:
+          REVIEWS_TABLE: !Ref ReviewsTable
+          LAKE_BUCKET: !ImportValue
+            Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          REVIEW_MODE: !Ref ReviewMode
+          PRICE_IN_PER_MTOK: !Ref PriceInPerMTok
+          PRICE_OUT_PER_MTOK: !Ref PriceOutPerMTok
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ReviewsTable
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref AppSecretArn
+            - Effect: Allow
+              Action: bedrock:InvokeModel  # Converse is authorized as InvokeModel
+              Resource: "*"
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub
+                - "arn:aws:s3:::${Bucket}/processed/critic/*"
+                - Bucket: !ImportValue
+                    Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+      Events:
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ReviewQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig:
+              MaximumConcurrency: 5  # spend cap: at most 5 reviews in flight
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  DLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: A PR review failed 3 times and was dead-lettered.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ReviewDLQ.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  LakeCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: ReadCriticPrefix
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub
+                  - "arn:aws:s3:::${Bucket}/processed/critic/*"
+                  - Bucket: !ImportValue
+                      Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub
+                  - "arn:aws:s3:::${Bucket}"
+                  - Bucket: !ImportValue
+                      Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+
+  LakeCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: critic-lake-crawler
+      Role: !GetAtt LakeCrawlerRole.Arn
+      DatabaseName: !ImportValue
+        Fn::Sub: "${LogsStackName}-AnalyticsDatabaseName"
+      TablePrefix: critic_
+      Targets:
+        S3Targets:
+          - Path: !Sub
+              - "s3://${Bucket}/processed/critic/reviews/"
+              - Bucket: !ImportValue
+                  Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+          - Path: !Sub
+              - "s3://${Bucket}/processed/critic/findings/"
+              - Bucket: !ImportValue
+                  Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
+      Schedule:
+        ScheduleExpression: cron(30 19 ? * SUN *)  # before github-logs' weekly report
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+
+Outputs:
+  WebhookUrl:
+    Description: Paste this into the GitHub App's webhook URL.
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/webhook"
+  ReviewQueueUrl:
+    Value: !Ref ReviewQueue
+  ReviewsTableName:
+    Value: !Ref ReviewsTable
