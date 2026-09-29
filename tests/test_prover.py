@@ -14,17 +14,23 @@ GOOD_TEST = "from a import f\ndef test_f():\n    assert f([1, 2]) == 1\n"
 class FakeExec:
     """Returns scripted outcomes per side; records which code ran where."""
 
-    def __init__(self, head: list[str], base: str = "passed"):
+    def __init__(self, head: list[str], base: str = "passed", reached=None):
         self.head, self.base = list(head), base
+        self.reached = list(reached) if reached else None  # per head run; None = line 4 hit
+        self.targets: list = []
         self.ran: list[tuple[str, str]] = []
 
-    def run(self, src: Path, test_path: str, timeout_s: int, env=None) -> RunOutcome:
+    def run(self, src: Path, test_path: str, timeout_s: int, env=None, target_file=None):
         side = src.name
+        self.targets.append((side, target_file))
         code = (src / test_path).read_text()
         self.ran.append((side, code))
         outcome = self.head.pop(0) if side == "head" else self.base
         failure = "ImportError: cannot import name 'g'" if outcome == "error" else ""
-        return RunOutcome(outcome, 1, 0.1, failure, "tail")
+        reached = [4]
+        if side == "head" and self.reached is not None:
+            reached = self.reached.pop(0)
+        return RunOutcome(outcome, 1, 0.1, failure, "tail", reached)
 
 
 def _finding():
@@ -105,9 +111,26 @@ def test_gives_up_after_max_attempts(tmp_path):
     model = FakeModel([_submit(bad, f"u{i}") for i in range(3)])
     p = _prove(tmp_path, model, FakeExec(["error"] * 3))
     assert (p.verdict, p.attempts) == (INCONCLUSIVE, 3)
-    assert p.note.startswith("test never ran")
+    assert p.note.startswith("test never exercised")
 
 
 def test_no_base_snapshot_is_likely(tmp_path):
     p = _prove(tmp_path, FakeModel([_submit(GOOD_TEST, "u1")]), FakeExec(["failed"]), base=False)
     assert p.verdict == LIKELY
+
+
+def test_passing_without_reaching_the_line_is_retried(tmp_path):
+    model = FakeModel([_submit(GOOD_TEST, "u1"), _submit(GOOD_TEST, "u2")])
+    ex = FakeExec(["passed", "passed"], reached=[[90, 91], [3, 4]])
+    p = _prove(tmp_path, model, ex)
+    assert (p.verdict, p.attempts) == (REFUTED, 2)  # second test reached line 4 -> final
+    feedback = model.calls[1]["messages"][-1]["content"][0]["toolResult"]["content"][0]["text"]
+    assert "never executed a.py line 4" in feedback and "90, 91" in feedback
+    assert ex.targets[0] == ("head", "a.py")
+
+
+def test_failing_without_reaching_is_not_evidence(tmp_path):
+    model = FakeModel([_submit(GOOD_TEST, f"u{i}") for i in range(3)])
+    p = _prove(tmp_path, model, FakeExec(["failed"] * 3, reached=[[], [], [90]]))
+    assert (p.verdict, p.attempts) == (INCONCLUSIVE, 3)
+    assert "never exercised" in p.note

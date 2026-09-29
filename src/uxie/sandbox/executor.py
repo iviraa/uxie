@@ -33,7 +33,12 @@ HARDENING = [
 
 class Executor(Protocol):
     def run(
-        self, src: Path, test_path: str, timeout_s: int, env: Path | None = None
+        self,
+        src: Path,
+        test_path: str,
+        timeout_s: int,
+        env: Path | None = None,
+        target_file: str | None = None,
     ) -> RunOutcome: ...
 
 
@@ -41,8 +46,17 @@ class DockerExecutor:
     def __init__(self, image: str = "uxie-sandbox:dev") -> None:
         self.image = image
 
-    def run(self, src: Path, test_path: str, timeout_s: int, env: Path | None = None) -> RunOutcome:
+    def run(
+        self,
+        src: Path,
+        test_path: str,
+        timeout_s: int,
+        env: Path | None = None,
+        target_file: str | None = None,
+    ) -> RunOutcome:
         deps = ["-v", f"{env.resolve()}:/env:ro", "-e", "PYTHONPATH=/env/site"] if env else []
+        if target_file:
+            deps += ["-e", f"UXIE_TARGET_FILE={target_file}"]
         cmd = [
             "docker",
             "run",

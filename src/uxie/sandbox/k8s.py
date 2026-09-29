@@ -24,9 +24,12 @@ def job_manifest(
     image: str,
     pull: str = "IfNotPresent",
     env_sub_path: str | None = None,
+    target_file: str | None = None,
 ) -> dict[str, Any]:
     """Pure function so the security posture is unit-testable without a cluster."""
     env_vars = [{"name": "TEST_TIMEOUT", "value": str(timeout_s)}]
+    if target_file:
+        env_vars.append({"name": "UXIE_TARGET_FILE", "value": target_file})
     mounts: list[dict[str, Any]] = [
         {"name": "src", "mountPath": "/src", "subPath": sub_path, "readOnly": True},
         {"name": "tmp", "mountPath": "/tmp"},
@@ -108,11 +111,26 @@ class K8sExecutor:
         self.host_root = host_root.resolve()
         self.ns, self.image = namespace, image
 
-    def run(self, src: Path, test_path: str, timeout_s: int, env: Path | None = None) -> RunOutcome:
+    def run(
+        self,
+        src: Path,
+        test_path: str,
+        timeout_s: int,
+        env: Path | None = None,
+        target_file: str | None = None,
+    ) -> RunOutcome:
         rel = src.resolve().relative_to(self.host_root)  # raises if outside the shared mount
         env_rel = str(env.resolve().relative_to(self.host_root)) if env else None
         name = f"verify-{uuid.uuid4().hex[:10]}"
-        body = job_manifest(name, str(rel), test_path, timeout_s, self.image, env_sub_path=env_rel)
+        body = job_manifest(
+            name,
+            str(rel),
+            test_path,
+            timeout_s,
+            self.image,
+            env_sub_path=env_rel,
+            target_file=target_file,
+        )
         self._batch.create_namespaced_job(self.ns, body)
         try:
             return self._wait(name, timeout_s + 60)

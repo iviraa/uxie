@@ -31,6 +31,13 @@ class RunOutcome:
     duration_s: float
     failure: str = ""  # first line of the failure message, e.g. "AssertionError: assert 1 == 2"
     output_tail: str = ""
+    reached: list[int] | None = None  # executed lines of the target file; None = not traced
+
+    def reaches(self, line: int, tolerance: int = 2) -> bool:
+        """Did the test execute (near) this line? Untraced runs are given the benefit."""
+        if self.reached is None:
+            return True
+        return any(abs(n - line) <= tolerance for n in self.reached)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

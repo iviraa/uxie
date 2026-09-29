@@ -14,7 +14,15 @@ from uxie.review.model import ChatModel, Usage
 from uxie.review.reviewer import PullRequest
 from uxie.review.workspace import Workspace
 from uxie.sandbox.executor import Executor, stage
-from uxie.sandbox.spec import ERROR, FAILED, INCONCLUSIVE, RunOutcome, VerifyJob, decide
+from uxie.sandbox.spec import (
+    ERROR,
+    FAILED,
+    INCONCLUSIVE,
+    PASSED,
+    RunOutcome,
+    VerifyJob,
+    decide,
+)
 
 TEST_PATH = "test_uxie_verify.py"  # repo root, so `python -m pytest` can import the package
 
@@ -47,6 +55,20 @@ Fix the test so it actually exercises the code (imports, signatures, setup). Do 
 what it asserts about correct behavior. Call submit_test again."""
 
 FORCE = "Call submit_test now with the complete test file."
+
+UNREACHED = (
+    "Your test never executed {path} line {line}, so its result says nothing about the "
+    "reported bug (lines of that file it did run: {ran}). Call the real code so that line "
+    "executes; do not mock the function or module under test."
+)
+
+
+def _ran(lines: list[int] | None) -> str:
+    if not lines:
+        return "none"
+    shown = ", ".join(map(str, lines[:40]))
+    return shown + (" ..." if len(lines) > 40 else "")
+
 
 SUBMIT_TEST: dict[str, Any] = {
     "toolSpec": {
@@ -170,13 +192,24 @@ def prove(
                 cfg.timeout_s,
             )
             proof.head = ex.run(
-                stage(head_snapshot, job, workdir / "head"), TEST_PATH, cfg.timeout_s, env
+                stage(head_snapshot, job, workdir / "head"),
+                TEST_PATH,
+                cfg.timeout_s,
+                env,
+                finding.path,  # trace which lines of the flagged file the test executes
             )
-            if proof.head.outcome != ERROR:
-                break  # failed or passed on head: the verdict stands, no second chances
-            problem = f"{proof.head.failure}".strip() or "the test errored before asserting"
+            head = proof.head
+            if head.outcome == ERROR:
+                problem = f"{head.failure}".strip() or "the test errored before asserting"
+            elif head.outcome in (PASSED, FAILED) and not head.reaches(finding.line):
+                problem = UNREACHED.format(
+                    path=finding.path, line=finding.line, ran=_ran(head.reached)
+                )
+            else:
+                break  # it ran the flagged line: the verdict stands, no second chances
         if attempt == cfg.max_attempts:
-            proof.note = f"test never ran: {problem}"
+            proof.note = f"test never exercised the finding: {problem}"[:500]
+            proof.verdict = INCONCLUSIVE
             return proof
         tail = proof.head.output_tail[-1500:] if proof.head else ""
         conv.reply(RETRY.format(failure=problem, tail=tail))

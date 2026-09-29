@@ -11,6 +11,7 @@ import time
 import xml.etree.ElementTree as ET
 
 REPORT = "/tmp/report.xml"
+REACH = "/tmp/reach.json"
 
 # failures that mean the test couldn't exercise the code (API absent or called wrong),
 # as opposed to the code misbehaving. NoneType attribute errors are real bugs, so excluded.
@@ -46,6 +47,16 @@ def classify(report_path: str, exit_code: int) -> tuple[str, str]:
     return ("passed" if exit_code == 0 else "error"), ""
 
 
+def _reached() -> list[int] | None:
+    if not os.environ.get("UXIE_TARGET_FILE"):
+        return None
+    try:
+        with open(REACH) as fh:
+            return list(json.load(fh))
+    except (OSError, ValueError):
+        return []  # tracing was on but nothing recorded: the file never ran
+
+
 def main() -> None:
     test_path, timeout = sys.argv[1], int(os.environ.get("TEST_TIMEOUT", "60"))
     cmd = [
@@ -60,9 +71,14 @@ def main() -> None:
         "--rootdir=.",
         test_path,
     ]
+    env = dict(os.environ)
+    if env.get("UXIE_TARGET_FILE"):  # trace which lines of the flagged file actually run
+        cmd[3:3] = ["-p", "uxie_reach"]
+        here = os.path.dirname(os.path.abspath(__file__))
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (here, env.get("PYTHONPATH")) if p)
     t0 = time.monotonic()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         (outcome, failure), code = classify(REPORT, proc.returncode), proc.returncode
         out = proc.stdout + proc.stderr
     except subprocess.TimeoutExpired as e:
@@ -76,6 +92,7 @@ def main() -> None:
                 "duration_s": round(time.monotonic() - t0, 2),
                 "failure": failure,
                 "output_tail": out[-3000:],
+                "reached": _reached(),
             }
         )
     )
