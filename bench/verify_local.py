@@ -32,8 +32,12 @@ def main() -> None:
     ap.add_argument("--base", required=True)
     ap.add_argument("--head", required=True)
     ap.add_argument("--executor", choices=["k8s", "docker"], default="k8s")
-    ap.add_argument("--extra-finding", action="append", default=[],
-                    help='JSON finding to prove in addition to the reviewer\'s')
+    ap.add_argument(
+        "--extra-finding",
+        action="append",
+        default=[],
+        help="JSON finding to prove in addition to the reviewer's",
+    )
     args = ap.parse_args()
 
     files = []
@@ -47,8 +51,9 @@ def main() -> None:
     model = BedrockModel(MODEL, "us-east-2", rpm=9)
     cfg = ReviewSettings(MODEL, "context", 8, 0.5, 10, 10**9, 1.0, 5.0)
     res = review(pr, Workspace(head_snap), model, cfg)
-    extra, _ = validate(parse_findings([json.loads(x) for x in args.extra_finding]),
-                        pr.files, 0.0, 10)
+    extra, _ = validate(
+        parse_findings([json.loads(x) for x in args.extra_finding]), pr.files, 0.0, 10
+    )
     findings: list[Finding] = [*res.findings, *extra]
     print(f"review: {len(res.findings)} finding(s), +{len(extra)} extra, ${res.cost_usd:.4f}\n")
 

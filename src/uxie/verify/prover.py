@@ -134,6 +134,7 @@ def prove(
     ex: Executor,
     workdir: Path,
     cfg: ProverSettings | None = None,
+    env: Path | None = None,
 ) -> Proof:
     cfg = cfg or ProverSettings()
     conv = Conversation(
@@ -169,7 +170,7 @@ def prove(
                 cfg.timeout_s,
             )
             proof.head = ex.run(
-                stage(head_snapshot, job, workdir / "head"), TEST_PATH, cfg.timeout_s
+                stage(head_snapshot, job, workdir / "head"), TEST_PATH, cfg.timeout_s, env
             )
             if proof.head.outcome != ERROR:
                 break  # failed or passed on head: the verdict stands, no second chances
@@ -183,6 +184,8 @@ def prove(
     assert proof.head is not None
     if proof.head.outcome == FAILED and base_snapshot is not None:
         job = VerifyJob("base", "", "", "", TEST_PATH, proof.test_code, {}, cfg.timeout_s)
-        proof.base = ex.run(stage(base_snapshot, job, workdir / "base"), TEST_PATH, cfg.timeout_s)
+        proof.base = ex.run(
+            stage(base_snapshot, job, workdir / "base"), TEST_PATH, cfg.timeout_s, env
+        )
     proof.verdict = decide(proof.head, proof.base)
     return proof

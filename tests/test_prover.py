@@ -18,7 +18,7 @@ class FakeExec:
         self.head, self.base = list(head), base
         self.ran: list[tuple[str, str]] = []
 
-    def run(self, src: Path, test_path: str, timeout_s: int) -> RunOutcome:
+    def run(self, src: Path, test_path: str, timeout_s: int, env=None) -> RunOutcome:
         side = src.name
         code = (src / test_path).read_text()
         self.ran.append((side, code))

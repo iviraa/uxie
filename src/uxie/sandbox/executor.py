@@ -32,19 +32,23 @@ HARDENING = [
 
 
 class Executor(Protocol):
-    def run(self, src: Path, test_path: str, timeout_s: int) -> RunOutcome: ...
+    def run(
+        self, src: Path, test_path: str, timeout_s: int, env: Path | None = None
+    ) -> RunOutcome: ...
 
 
 class DockerExecutor:
     def __init__(self, image: str = "uxie-sandbox:dev") -> None:
         self.image = image
 
-    def run(self, src: Path, test_path: str, timeout_s: int) -> RunOutcome:
+    def run(self, src: Path, test_path: str, timeout_s: int, env: Path | None = None) -> RunOutcome:
+        deps = ["-v", f"{env.resolve()}:/env:ro", "-e", "PYTHONPATH=/env/site"] if env else []
         cmd = [
             "docker",
             "run",
             "--rm",
             *HARDENING,
+            *deps,
             "-e",
             f"TEST_TIMEOUT={timeout_s}",
             "-v",
@@ -76,10 +80,17 @@ def stage(snapshot: Path, job: VerifyJob, dest: Path) -> Path:
 
 
 def verify(
-    job: VerifyJob, base_snapshot: Path | None, head_snapshot: Path, workdir: Path, ex: Executor
+    job: VerifyJob,
+    base_snapshot: Path | None,
+    head_snapshot: Path,
+    workdir: Path,
+    ex: Executor,
+    env: Path | None = None,
 ) -> Verdict:
-    head = ex.run(stage(head_snapshot, job, workdir / "head"), job.test_path, job.timeout_s)
+    head = ex.run(stage(head_snapshot, job, workdir / "head"), job.test_path, job.timeout_s, env)
     base = None
     if head.outcome == "failed" and base_snapshot is not None:  # base only matters if head fails
-        base = ex.run(stage(base_snapshot, job, workdir / "base"), job.test_path, job.timeout_s)
+        base = ex.run(
+            stage(base_snapshot, job, workdir / "base"), job.test_path, job.timeout_s, env
+        )
     return Verdict(job.job_id, decide(head, base), head, base)

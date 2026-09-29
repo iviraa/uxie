@@ -1,0 +1,125 @@
+import shutil
+import subprocess
+import textwrap
+import uuid
+from pathlib import Path
+
+import pytest
+
+from uxie.sandbox.envs import EnvBuilder, env_key, requirements
+
+
+def _write(root: Path, name: str, text: str) -> None:
+    (root / name).write_text(textwrap.dedent(text))
+
+
+def test_pep621_excludes_own_project_and_splits_groups(tmp_path):
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        """
+        [project]
+        name = "My_Pkg"
+        dependencies = ["httpx>=0.27", "my-pkg[extra]"]
+        [project.optional-dependencies]
+        cli = ["click"]
+        [dependency-groups]
+        dev = ["pytest", {include-group = "cli"}]
+    """,
+    )
+    _write(tmp_path, "requirements.txt", "-e .[cli]\nmypy==1.0\ngit+https://x/y.git\n")
+    core, groups = requirements(tmp_path)
+    assert core == ["httpx>=0.27"]  # own package dropped even with extras / other spelling
+    assert groups == {
+        "extra:cli": ["click"],
+        "file:requirements.txt": ["mypy==1.0"],
+        "group:dev": ["pytest"],
+    }
+
+
+def test_requirements_is_core_without_pyproject_deps(tmp_path):
+    _write(tmp_path, "requirements.txt", "boto3>=1.34  # aws\n\n-r extra.txt\n")
+    _write(tmp_path, "extra.txt", "jinja2\n-r requirements.txt\n")  # cycle
+    _write(tmp_path, "requirements-dev.txt", "-r requirements.txt\nruff\n")
+    core, groups = requirements(tmp_path)
+    assert core == ["boto3>=1.34", "jinja2"]
+    assert groups == {"file:requirements-dev.txt": ["boto3>=1.34", "jinja2", "ruff"]}
+
+
+def test_poetry_caret_and_optional(tmp_path):
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        """
+        [tool.poetry]
+        name = "rich"
+        [tool.poetry.dependencies]
+        python = "^3.8"
+        pygments = "^2.13.0"
+        ipywidgets = { version = ">=7.5.1,<9", optional = true }
+        local = { path = "../local" }
+    """,
+    )
+    core, groups = requirements(tmp_path)
+    assert core == ["pygments>=2.13.0"]
+    assert groups == {"poetry:extras": ["ipywidgets>=7.5.1,<9"]}
+
+
+def test_key_is_stable_and_sensitive():
+    a = env_key(["x"], {"g": ["y"]}, None)
+    assert a == env_key(["x"], {"g": ["y"]}, None)
+    assert a != env_key(["x"], {"g": ["y"]}, "2024-01-01")
+    assert a != env_key(["x", "z"], {"g": ["y"]}, None)
+
+
+def test_no_deps_means_no_env(tmp_path):
+    assert EnvBuilder(tmp_path / "envs").ensure(tmp_path) is None
+
+
+def _docker_ok() -> bool:
+    try:
+        return (
+            subprocess.run(
+                ["docker", "image", "inspect", "uxie-sandbox:dev"], capture_output=True
+            ).returncode
+            == 0
+        )
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not _docker_ok(), reason="needs docker")
+def test_build_and_import_in_sandbox():
+    from uxie.sandbox.executor import DockerExecutor
+
+    jobs = Path.home() / ".uxie" / "jobs"
+    work = jobs / f"envtest-{uuid.uuid4().hex[:8]}"
+    repo = work / "repo"
+    (repo / "mypkg").mkdir(parents=True)
+    (repo / "mypkg" / "__init__.py").write_text("import six\nVALUE = six.PY3\n")
+    _write(repo, "pyproject.toml", '[project]\nname = "mypkg"\ndependencies = ["six"]\n')
+    (repo / "test_it.py").write_text(
+        "import importlib.util, mypkg\n"
+        "def test_t():\n"
+        "    assert mypkg.VALUE is True\n"
+        "    assert mypkg.__file__.startswith('/src/')  # PR code, not an installed copy\n"
+    )
+    try:
+        env = EnvBuilder(work / "envs").ensure(repo, exclude_newer="2025-01-01T00:00:00Z")
+        assert env is not None and (env / "site" / "six.py").exists()
+        assert not list((env / "site").glob("mypkg*"))  # the project itself never installed
+        assert EnvBuilder(work / "envs").ensure(repo, "2025-01-01T00:00:00Z") == env  # cached
+        backends = [DockerExecutor()]
+        if (
+            subprocess.run(["kubectl", "get", "ns", "uxie-sandbox"], capture_output=True).returncode
+            == 0
+        ):
+            from uxie.sandbox.k8s import K8sExecutor
+
+            backends.append(K8sExecutor(jobs))
+        for ex in backends:
+            out = ex.run(repo, "test_it.py", 30, env)
+            assert out.outcome == "passed", (type(ex).__name__, out.failure, out.output_tail)
+            assert ex.run(repo, "test_it.py", 30).outcome == "error"  # without env: no six
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

@@ -17,9 +17,25 @@ ROLE_LABEL = {"uxie.dev/role": "sandbox"}
 
 
 def job_manifest(
-    name: str, sub_path: str, test_path: str, timeout_s: int, image: str, pull: str = "IfNotPresent"
+    name: str,
+    sub_path: str,
+    test_path: str,
+    timeout_s: int,
+    image: str,
+    pull: str = "IfNotPresent",
+    env_sub_path: str | None = None,
 ) -> dict[str, Any]:
     """Pure function so the security posture is unit-testable without a cluster."""
+    env_vars = [{"name": "TEST_TIMEOUT", "value": str(timeout_s)}]
+    mounts: list[dict[str, Any]] = [
+        {"name": "src", "mountPath": "/src", "subPath": sub_path, "readOnly": True},
+        {"name": "tmp", "mountPath": "/tmp"},
+    ]
+    if env_sub_path:  # dependency env from the same volume, read-only
+        env_vars.append({"name": "PYTHONPATH", "value": "/env/site"})
+        mounts.append(
+            {"name": "src", "mountPath": "/env", "subPath": env_sub_path, "readOnly": True}
+        )
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -47,7 +63,7 @@ def job_manifest(
                             "image": image,
                             "imagePullPolicy": pull,
                             "args": [test_path],
-                            "env": [{"name": "TEST_TIMEOUT", "value": str(timeout_s)}],
+                            "env": env_vars,
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
@@ -61,15 +77,7 @@ def job_manifest(
                                 "allowPrivilegeEscalation": False,
                                 "capabilities": {"drop": ["ALL"]},
                             },
-                            "volumeMounts": [
-                                {
-                                    "name": "src",
-                                    "mountPath": "/src",
-                                    "subPath": sub_path,
-                                    "readOnly": True,
-                                },
-                                {"name": "tmp", "mountPath": "/tmp"},
-                            ],
+                            "volumeMounts": mounts,
                         }
                     ],
                     "volumes": [
@@ -100,10 +108,11 @@ class K8sExecutor:
         self.host_root = host_root.resolve()
         self.ns, self.image = namespace, image
 
-    def run(self, src: Path, test_path: str, timeout_s: int) -> RunOutcome:
+    def run(self, src: Path, test_path: str, timeout_s: int, env: Path | None = None) -> RunOutcome:
         rel = src.resolve().relative_to(self.host_root)  # raises if outside the shared mount
+        env_rel = str(env.resolve().relative_to(self.host_root)) if env else None
         name = f"verify-{uuid.uuid4().hex[:10]}"
-        body = job_manifest(name, str(rel), test_path, timeout_s, self.image)
+        body = job_manifest(name, str(rel), test_path, timeout_s, self.image, env_sub_path=env_rel)
         self._batch.create_namespaced_job(self.ns, body)
         try:
             return self._wait(name, timeout_s + 60)
