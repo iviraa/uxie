@@ -1,0 +1,9 @@
+# Sandbox pod settings read by the dispatcher when it builds Jobs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uxie-sandbox-settings
+data:
+  image: {{ .Values.sandbox.image | quote }}
+  pullPolicy: {{ .Values.sandbox.pullPolicy | quote }}
+  runAsUser: {{ .Values.sandbox.runAsUser | quote }}

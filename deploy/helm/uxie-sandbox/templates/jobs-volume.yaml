@@ -1,0 +1,31 @@
+# Staged checkouts live on the node at {{ .Values.jobs.nodePath }}. Pods can't use hostPath
+# under the "restricted" Pod Security standard, so the admin-owned PV exposes it and pods
+# get a read-only claim on their own subPath.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Release.Namespace }}-jobs
+spec:
+  capacity:
+    storage: {{ .Values.jobs.size }}
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: {{ .Release.Namespace }}
+    name: jobs
+  hostPath:
+    path: {{ .Values.jobs.nodePath }}
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jobs
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: {{ .Release.Namespace }}-jobs
+  resources:
+    requests:
+      storage: {{ .Values.jobs.size }}

@@ -1,0 +1,14 @@
+# Backstop: any container created in this namespace gets bounded resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: sandbox-limits
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: {{ .Values.sandbox.resources.limits.cpu | quote }}
+        memory: {{ .Values.sandbox.resources.limits.memory }}
+      defaultRequest:
+        cpu: {{ .Values.sandbox.resources.requests.cpu }}
+        memory: {{ .Values.sandbox.resources.requests.memory }}

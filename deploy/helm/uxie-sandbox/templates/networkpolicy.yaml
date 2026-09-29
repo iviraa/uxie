@@ -1,0 +1,10 @@
+# Sandbox pods run untrusted code: no ingress, no egress (DNS included).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-deny-all
+spec:
+  podSelector:
+    matchLabels:
+      uxie.dev/role: sandbox
+  policyTypes: [Ingress, Egress]
