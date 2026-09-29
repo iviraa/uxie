@@ -20,4 +20,5 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src/uxie src/lambdas bench
+      - run: docker build -t uxie-sandbox:dev sandbox  # enables the container integration tests
       - run: pytest -q
