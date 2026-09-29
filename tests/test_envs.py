@@ -123,3 +123,24 @@ def test_build_and_import_in_sandbox():
             assert ex.run(repo, "test_it.py", 30).outcome == "error"  # without env: no six
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def test_heavy_ml_stack_is_skipped(tmp_path):
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        '[project]\nname = "w"\ndependencies = ["numpy", "torch>=2.4"]\n',
+    )
+    assert EnvBuilder(tmp_path / "envs").ensure(tmp_path) is None
+    assert not (tmp_path / "envs").exists()  # nothing was built
+
+
+def test_refuses_to_build_when_disk_is_low(tmp_path, monkeypatch):
+    import shutil as sh
+
+    from uxie.sandbox import envs
+
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "w"\ndependencies = ["six"]\n')
+    monkeypatch.setattr(sh, "disk_usage", lambda p: sh._ntuple_diskusage(100, 99, 1))
+    with pytest.raises(RuntimeError, match="refusing env build"):
+        envs.EnvBuilder(tmp_path / "envs").ensure(tmp_path)

@@ -19,6 +19,28 @@ from pathlib import Path
 
 BUILDER_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
 SITE = "site"  # packages land in <env>/site, mounted at /env/site in the sandbox
+MIN_FREE_BYTES = 15 * 1024**3  # refuse to build when the disk is this close to full
+MAX_ENV_BYTES = 1 * 1024**3  # an env bigger than this is deleted and marked failed
+# multi-GB ML stacks: a unit test can't meaningfully exercise them in a 512Mi sandbox
+HEAVY = {
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "tensorflow",
+    "tensorflow-cpu",
+    "jax",
+    "jaxlib",
+    "mujoco",
+    "gymnasium",
+    "stable-baselines3",
+    "loco-mujoco",
+    "tensorboard",
+    "transformers",
+    "nvidia-cudnn-cu12",
+    "triton",
+    "opencv-python",
+    "imageio-ffmpeg",
+}
 _NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
@@ -115,6 +137,14 @@ def requirements(root: Path) -> tuple[list[str], dict[str, list[str]]]:
     return clean(core), {g: clean(r) for g, r in sorted(groups.items()) if clean(r)}
 
 
+def heavy(reqs: list[str]) -> list[str]:
+    return sorted({_req_name(r) for r in reqs} & HEAVY)
+
+
+def _tree_bytes(root: Path) -> int:
+    return sum(p.stat().st_size for p in root.rglob("*") if p.is_file() and not p.is_symlink())
+
+
 def env_key(core: list[str], groups: dict[str, list[str]], exclude_newer: str | None) -> str:
     blob = json.dumps(
         {"image": BUILDER_IMAGE, "core": core, "groups": groups, "exclude_newer": exclude_newer},
@@ -138,6 +168,9 @@ class EnvBuilder:
     def ensure(self, repo_root: Path, exclude_newer: str | None = None) -> Path | None:
         """Env dir for this repo's dependencies, or None if it has none or the build failed."""
         core, groups = requirements(repo_root)
+        if heavy(core):
+            return None  # tests will error on import -> inconclusive, which is honest
+        groups = {g: r for g, r in groups.items() if not heavy(r)}
         if not core and not groups:
             return None
         key = env_key(core, groups, exclude_newer)
@@ -152,6 +185,10 @@ class EnvBuilder:
     def _build(
         self, env: Path, core: list[str], groups: dict[str, list[str]], exclude_newer: str | None
     ) -> Path | None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(self.root).free
+        if free < MIN_FREE_BYTES:
+            raise RuntimeError(f"refusing env build: only {free / 1024**3:.1f} GiB free")
         tmp = env.with_suffix(".tmp")
         shutil.rmtree(tmp, ignore_errors=True)
         tmp.mkdir(parents=True)
@@ -163,6 +200,12 @@ class EnvBuilder:
             return None
         for name, reqs in groups.items():  # best effort: extras often need things we skip
             self._install(tmp, name, reqs, exclude_newer, log)
+        size = _tree_bytes(tmp)
+        if size > MAX_ENV_BYTES:
+            log.append(f"env too large: {size / 1024**2:.0f} MiB")
+            (self.root / f"{env.name}.failed").write_text("\n".join(log)[-20000:])
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None
         (tmp / "build.log").write_text("\n".join(log)[-50000:])
         (tmp / "ok").write_text(json.dumps({"core": core, "groups": list(groups)}))
         shutil.rmtree(env, ignore_errors=True)
