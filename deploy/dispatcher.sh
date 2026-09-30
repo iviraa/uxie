@@ -11,6 +11,7 @@ out() {
 QUEUE="$(out VerifyQueueUrl)"
 TABLE="$(out ReviewsTableName)"
 SECRET="$(jq -r .AppSecretArn infrastructure/parameters.json)"
+OTEL="$(jq -r '.OtelSecretArn // ""' infrastructure/parameters.json)"
 
 helm repo add kedacore https://kedacore.github.io/charts >/dev/null 2>&1 || true
 helm upgrade --install keda kedacore/keda -n keda --create-namespace --wait
@@ -19,7 +20,8 @@ docker build -q -f dispatcher/Dockerfile -t uxie-dispatcher:dev . >/dev/null
 k3d image import uxie-dispatcher:dev -c uxie
 
 args=(--set dispatcher.enabled=true --set dispatcher.queueUrl="$QUEUE"
-      --set dispatcher.reviewsTable="$TABLE" --set dispatcher.appSecretArn="$SECRET")
+      --set dispatcher.reviewsTable="$TABLE" --set dispatcher.appSecretArn="$SECRET"
+      --set dispatcher.otelSecretArn="$OTEL")
 # first install creates the namespace; KEDA only goes ready once the AWS secret exists
 helm upgrade --install uxie-sandbox deploy/helm/uxie-sandbox -n uxie-sandbox "${args[@]}" || true
 
