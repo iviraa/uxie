@@ -247,8 +247,8 @@ def test_unverifiable_languages_are_posted_not_held(tmp_path, cfg):
         def list_pr_files(self, repo, n):
             return [{"filename": "src/app.rs", "status": "modified", "patch": rs_patch}]
 
-    unsure_ts = {
-        "path": "src/app.ts",
+    unsure_rs = {
+        "path": "src/app.rs",
         "line": 2,
         "severity": "high",
         "category": "bug",
