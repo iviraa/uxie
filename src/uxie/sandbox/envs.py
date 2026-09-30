@@ -55,6 +55,21 @@ def _req_name(req: str) -> str:
     return _norm(m.group(1)) if m else ""
 
 
+def _py_marker(constraint: str) -> str:
+    """Poetry's python = "<3.7" / "^3.6" / ">=3.6,<3.8" as a PEP 508 marker."""
+    parts = []
+    for c in str(constraint).split(","):
+        c = c.strip()
+        if not c or c == "*":
+            continue
+        if c[0] in "^~":
+            c = ">=" + c[1:].lstrip("=")  # caret/tilde: the lower bound is what matters here
+        op = next((o for o in (">=", "<=", "==", "!=", ">", "<") if c.startswith(o)), "==")
+        version = c[len(op) :].strip() if c.startswith(op) else c
+        parts.append(f'python_version {op} "{".".join(version.split(".")[:2])}"')
+    return " and ".join(parts)
+
+
 def _poetry(deps: dict[str, object], optional: bool = False) -> list[str]:
     """Poetry deps; `optional` selects the ones marked optional (extras) instead."""
     out = []
@@ -69,7 +84,18 @@ def _poetry(deps: dict[str, object], optional: bool = False) -> list[str]:
         version = str(version).strip()
         if version.startswith(("^", "~")):
             version = ">=" + version[1:].lstrip("=")  # close enough for resolution
-        out.append(name + ("" if version in ("", "*") else version))
+        req = name + ("" if version in ("", "*") else version)
+        # keep "only on old Pythons" deps off modern ones (e.g. the dataclasses backport,
+        # which shadows the stdlib module and breaks imports on 3.7+)
+        markers = [
+            m
+            for m in (
+                _py_marker(spec.get("python", "")) if isinstance(spec, dict) else "",
+                str(spec.get("markers", "")) if isinstance(spec, dict) else "",
+            )
+            if m
+        ]
+        out.append(req + (f"; {' and '.join(markers)}" if markers else ""))
     return out
 
 

@@ -190,3 +190,25 @@ def test_setup_py_literal_and_name_refs(tmp_path):
     )
     core, _ = requirements(tmp_path)
     assert core == ["certifi", "rfc3986[idna2008]>=1.3,<2"]
+
+
+def test_poetry_python_constraint_becomes_marker(tmp_path):
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        """
+        [tool.poetry]
+        name = "rich"
+        [tool.poetry.dependencies]
+        python = "^3.6.2"
+        dataclasses = { version = ">=0.7,<0.9", python = "<3.7" }
+        typing-extensions = { version = ">=3.7.4, <5.0", python = ">=3.6,<3.9" }
+        colorama = { version = "^0.4", markers = "sys_platform == 'win32'" }
+    """,
+    )
+    core, _ = requirements(tmp_path)
+    assert 'dataclasses>=0.7,<0.9; python_version < "3.7"' in core
+    assert (
+        'typing-extensions>=3.7.4, <5.0; python_version >= "3.6" and python_version < "3.9"' in core
+    )
+    assert "colorama>=0.4; sys_platform == 'win32'" in core
