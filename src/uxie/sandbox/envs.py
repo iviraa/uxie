@@ -434,6 +434,18 @@ class GoDeps:
 
 
 NODE_IMAGE = "node:24-bookworm-slim"
+REACT_TOOLS_VERSION = "2"  # bump to rebuild envs when the tooling below changes
+
+
+def react_tools(manifest: dict[str, Any]) -> list[str]:
+    """Testing Library + a DOM, matched to the project's React major (none if no React)."""
+    spec = {**manifest.get("devDependencies", {}), **manifest.get("dependencies", {})}.get("react")
+    if not spec:
+        return []
+    major = re.search(r"(\d+)", str(spec))
+    old = major is not None and int(major.group(1)) < 18
+    rtl = "@testing-library/react@12" if old else "@testing-library/react@16"
+    return [rtl, "@testing-library/dom@10"]  # the image preloads the DOM itself
 
 
 def _node_package(root: Path, target: str | None) -> Path | None:
@@ -472,7 +484,9 @@ class NodeDeps:
         if not (manifest.get("dependencies") or manifest.get("devDependencies")):
             return None
         lock = pkg / "package-lock.json"
-        blob = self.image.encode() + (pkg / "package.json").read_bytes()
+        blob = (
+            self.image.encode() + REACT_TOOLS_VERSION.encode() + (pkg / "package.json").read_bytes()
+        )
         blob += lock.read_bytes() if lock.is_file() else (exclude_newer or "").encode()
         key = f"node-{hashlib.sha256(blob).hexdigest()[:16]}"
         env = self.root / key
@@ -481,9 +495,11 @@ class NodeDeps:
                 return env
             if (self.root / f"{key}.failed").exists():
                 return None
-            return self._build(env, pkg, lock.is_file(), exclude_newer)
+            return self._build(env, pkg, lock.is_file(), exclude_newer, react_tools(manifest))
 
-    def _build(self, env: Path, pkg: Path, locked: bool, exclude_newer: str | None) -> Path | None:
+    def _build(
+        self, env: Path, pkg: Path, locked: bool, exclude_newer: str | None, tools: list[str]
+    ) -> Path | None:
         self.root.mkdir(parents=True, exist_ok=True)
         free = shutil.disk_usage(self.root).free
         if free < self.min_free_bytes:
@@ -499,6 +515,8 @@ class NodeDeps:
         else:  # no lockfile: resolve as of the commit date, like uv's --exclude-newer
             before = f" --before={exclude_newer}" if exclude_newer else ""
             install = f"npm install {flags} --no-package-lock{before}"
+        if tools:  # into the same node_modules as the project's React: two copies break hooks
+            install += f" && npm install {flags} --no-save {' '.join(tools)}"
         script = f"cd /env/mod && HOME=/tmp npm_config_cache=/tmp/npm {install}"
         code, log = self.runner(tmp, self.image, ["sh", "-c", script])
         if code != 0 or _tree_bytes(tmp) > MAX_ENV_BYTES:

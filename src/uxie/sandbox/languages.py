@@ -127,6 +127,25 @@ def _link_node_modules(checkout: Path, has_deps: bool) -> None:
         link.symlink_to("/env/mod/node_modules")  # resolved inside the container
 
 
+_JSX = (".tsx", ".jsx")
+
+
+def _ts_test_path(path: str, root: Path) -> str:
+    ext = ".tsx" if PurePosixPath(path).suffix in _JSX else ".ts"
+    return str(PurePosixPath(path).parent / f"uxie_verify.test{ext}")
+
+
+def _ts_hint(path: str, root: Path) -> str:
+    if PurePosixPath(path).suffix not in _JSX:
+        return ""
+    return (
+        "This is a React component. A DOM is already set up for the test. "
+        '`import React from "react"` and use `@testing-library/react` (render, screen, '
+        "fireEvent, act) to render the component, interact with it, and assert what the user "
+        "would see. Call `cleanup()` after each test."
+    )
+
+
 TYPESCRIPT = Language(
     name="typescript",
     suffixes=frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),
@@ -137,7 +156,7 @@ TYPESCRIPT = Language(
         "It sits next to the flagged file, so import the code under test with a relative path "
         '(e.g. `import { f } from "./module"`). Don\'t use jest, vitest, or mocha.'
     ),
-    test_path=lambda path, root: str(PurePosixPath(path).parent / "uxie_verify.test.ts"),
+    test_path=_ts_test_path,
     syntax_error=_ts_syntax,
     deps_env=lambda mount: {"NODE_PATH": f"{mount}/mod/node_modules"},  # CommonJS fallback
     tmp_size="1Gi",
@@ -145,6 +164,7 @@ TYPESCRIPT = Language(
     memory="1Gi",
     pids=256,
     prepare=_link_node_modules,
+    hint=_ts_hint,
     property_hint=(
         'fast-check is available (`import fc from "fast-check"`); always pass '
         "`{ seed: 42, numRuns: 200 }` to fc.assert so runs are deterministic."

@@ -228,7 +228,15 @@ def _ts_classify(report: str, test_path: str, output: str) -> tuple[str, str]:
     if failures:
         node = failures[0]
         text = (node.get("message") or node.text or "").strip()
-        first = text.splitlines()[0] if text else "test failed"
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        first = lines[0] if lines else "test failed"
+        if first.endswith(":") and len(lines) > 1:  # node puts the values below the header
+            if "+ actual - expected" in lines:  # diff form: "+ <actual>" / "- <expected>"
+                got = next((ln[2:] for ln in lines if ln.startswith("+ ") and ln != lines[1]), "")
+                want = next((ln[2:] for ln in lines if ln.startswith("- ")), "")
+                first = f"{first[:-1]}: got {got}, want {want}"
+            else:
+                first = f"{first} {lines[1]}"
         body = text + (node.text or "")
         return ("error" if TS_CANT_RUN.search(body) else "failed"), first[:300]
     return "passed", ""
@@ -237,14 +245,10 @@ def _ts_classify(report: str, test_path: str, output: str) -> tuple[str, str]:
 def run_ts(test_path: str, timeout: int) -> dict:
     report, lcov = "/tmp/report.xml", "/tmp/lcov.info"
     target = os.environ.get("UXIE_TARGET_FILE", "")
-    cmd = [
-        "node",
-        "--import",
-        TSX,
-        "--test",
-        "--test-reporter=junit",
-        f"--test-reporter-destination={report}",
-    ]
+    cmd = ["node", "--import", TSX]
+    if test_path.endswith((".tsx", ".jsx")):  # components need a DOM before imports run
+        cmd += ["--import", "file:///opt/uxie/tools/dom-setup.mjs"]
+    cmd += ["--test", "--test-reporter=junit", f"--test-reporter-destination={report}"]
     if target:  # node's own coverage maps through tsx's source maps line-accurately
         cmd += [
             "--experimental-test-coverage",
