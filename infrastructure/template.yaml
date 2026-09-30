@@ -27,6 +27,14 @@ Parameters:
   AlertEmail:
     Type: String
     Description: Where dead-letter alarms go.
+  VerifyFindings:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Queue each posted finding for sandbox verification by the local dispatcher.
+
+Conditions:
+  VerifyOn: !Equals [!Ref VerifyFindings, "true"]
 
 Globals:
   Function:
@@ -74,6 +82,52 @@ Resources:
         deadLetterTargetArn: !GetAtt ReviewDLQ.Arn
         maxReceiveCount: 3
 
+  VerifyDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: uxie-verify-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  VerifyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: uxie-verify
+      VisibilityTimeout: 1800  # a proof can take several minutes of model + sandbox time
+      MessageRetentionPeriod: 345600  # 4 days: jobs wait while the local cluster is off
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt VerifyDLQ.Arn
+        maxReceiveCount: 3
+
+  # Identity for the verify dispatcher running on the local k3s cluster (outside AWS).
+  # Access keys are created out of band so they never appear in stack outputs.
+  DispatcherUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: uxie-dispatcher
+      Policies:
+        - PolicyName: uxie-dispatcher
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes  # KEDA reads queue depth
+                Resource: !GetAtt VerifyQueue.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref AppSecretArn
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt ReviewsTable.Arn
+
   WebhookFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -116,11 +170,14 @@ Resources:
             Fn::Sub: "${LogsStackName}-RawArchiveBucketName"
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           REVIEW_MODE: !Ref ReviewMode
+          VERIFY_QUEUE_URL: !If [VerifyOn, !Ref VerifyQueue, ""]
           PRICE_IN_PER_MTOK: !Ref PriceInPerMTok
           PRICE_OUT_PER_MTOK: !Ref PriceOutPerMTok
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ReviewsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt VerifyQueue.QueueName
         - Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
@@ -223,6 +280,8 @@ Resources:
         DeleteBehavior: LOG
 
 Outputs:
+  VerifyQueueUrl:
+    Value: !Ref VerifyQueue
   WebhookUrl:
     Description: Paste this into the GitHub App's webhook URL.
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/webhook"

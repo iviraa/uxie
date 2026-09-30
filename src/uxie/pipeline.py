@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,11 +17,13 @@ from uxie.diff.patch import FilePatch, parse_patch
 from uxie.github.client import GitHubClient
 from uxie.github.webhook import ReviewJob
 from uxie.review import render
+from uxie.review.findings import Finding
 from uxie.review.model import ChatModel
 from uxie.review.reviewer import PullRequest, review
 from uxie.review.workspace import Workspace
 from uxie.store.lake import Lake
 from uxie.store.reviews import ReviewStore
+from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
 
@@ -42,6 +45,7 @@ def run(
     store: ReviewStore,
     lake: Lake | None,
     workdir: Path,
+    enqueue: Callable[[VerifyRequest], None] | None = None,
 ) -> str:
     """Returns a status string: done | skipped | stale | duplicate."""
     pr = gh.get_pr(job.repo, job.pr_number)
@@ -96,6 +100,8 @@ def run(
         if fresh or force or not reviewed_before:
             note = f"{repeats} earlier finding(s) still apply." if repeats else ""
             review_id = _post(gh, job, head, result.summary, fresh, note)
+            if enqueue and review_id and fresh:
+                _enqueue_verifies(gh, job, pr, head, fresh, review_id, enqueue)
         out = result.to_dict() | {"model_id": cfg.model_id, "mode": cfg.mode}
         store.finish(
             job.repo,
@@ -128,6 +134,34 @@ def run(
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _enqueue_verifies(
+    gh: GitHubClient,
+    job: ReviewJob,
+    pr: dict[str, Any],
+    head: str,
+    findings: list[Finding],
+    review_id: int,
+    enqueue: Callable[[VerifyRequest], None],
+) -> None:
+    """One verify job per posted finding, pointing at its inline comment for the reply."""
+    posted = gh.list_comments_for_review(job.repo, job.pr_number, review_id)
+    by_fp = {fp: c["id"] for c in posted for fp in render.fingerprints_in([c.get("body") or ""])}
+    for f in findings:
+        enqueue(
+            VerifyRequest(
+                repo=job.repo,
+                pr_number=job.pr_number,
+                installation_id=job.installation_id,
+                base_sha=pr["base"]["sha"],
+                head_sha=head,
+                title=pr.get("title") or "",
+                body=pr.get("body") or "",
+                finding=f.to_dict(),
+                comment_id=by_fp.get(f.fingerprint),
+            )
+        )
 
 
 def _post(

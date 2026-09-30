@@ -4,8 +4,9 @@ import pytest
 
 from tests.conftest import PATCH, FakeModel, tool_turn
 from uxie.sandbox.spec import RunOutcome
-from uxie.verify.dispatcher import Snapshots, VerifyRequest, handle
+from uxie.verify.dispatcher import Snapshots, handle
 from uxie.verify.prover import ProverSettings
+from uxie.verify.request import VerifyRequest
 
 TEST = "from a import f\ndef test_f():\n    assert f([1, 2]) == 1\n"
 FINDING = {

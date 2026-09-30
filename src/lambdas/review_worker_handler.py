@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import boto3
+
 from uxie import pipeline
 from uxie.common import config
 from uxie.common.logger import get_logger, log
@@ -16,6 +18,7 @@ from uxie.github.webhook import ReviewJob
 from uxie.review.model import BedrockModel
 from uxie.store.lake import Lake
 from uxie.store.reviews import ReviewStore
+from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
 
@@ -35,6 +38,14 @@ def _handle(job: ReviewJob) -> None:
     secret = config.app_secret(config.app_secret_arn())
     token = installation_token(secret.app_id, secret.private_key, job.installation_id)
     cfg = config.review_settings()
+    verify_url = config.verify_queue_url()
+    enqueue = None
+    if verify_url:
+        sqs = boto3.client("sqs")
+
+        def enqueue(req: VerifyRequest) -> None:
+            sqs.send_message(QueueUrl=verify_url, MessageBody=req.to_json())
+
     with GitHubClient(token) as gh:
         if job.comment_id:
             gh.add_reaction(job.repo, job.comment_id, "eyes")  # ack the /review command
@@ -46,5 +57,6 @@ def _handle(job: ReviewJob) -> None:
             ReviewStore(config.reviews_table()),
             Lake(config.lake_bucket()),
             Path(config.workspace_root()) / f"{job.pr_number}",
+            enqueue,
         )
     log(logger, logging.INFO, "job finished", status=status, job=job.to_dict())

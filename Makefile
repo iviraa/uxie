@@ -19,7 +19,7 @@ build:
 deploy: build
 	sam deploy -t .aws-sam/build/template.yaml \
 		--stack-name uxie \
-		--capabilities CAPABILITY_IAM \
+		--capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
 		--resolve-s3 \
 		--parameter-overrides $$(jq -r 'to_entries | map("\(.key)=\(.value)") | join(" ")' infrastructure/parameters.json)
 

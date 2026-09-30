@@ -48,6 +48,10 @@ def queue_url() -> str:
     return _require("REVIEW_QUEUE_URL")
 
 
+def verify_queue_url() -> str | None:
+    return os.environ.get("VERIFY_QUEUE_URL") or None  # unset: reviews aren't verified
+
+
 def reviews_table() -> str:
     return _require("REVIEWS_TABLE")
 

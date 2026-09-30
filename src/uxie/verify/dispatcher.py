@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import uuid
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -21,33 +19,9 @@ from uxie.review.workspace import Workspace
 from uxie.sandbox.executor import Executor
 from uxie.verify.prover import ProverSettings, prove
 from uxie.verify.render import verdict_reply
+from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class VerifyRequest:
-    repo: str
-    pr_number: int
-    installation_id: int
-    base_sha: str
-    head_sha: str
-    title: str
-    body: str
-    finding: dict[str, Any] = field(default_factory=dict)
-    comment_id: int | None = None
-
-    @property
-    def fingerprint(self) -> str:
-        f = self.finding
-        return str(f.get("fingerprint") or f"{f.get('path')}:{f.get('line')}")
-
-    def to_json(self) -> str:
-        return json.dumps(asdict(self))
-
-    @staticmethod
-    def from_json(raw: str) -> VerifyRequest:
-        return VerifyRequest(**json.loads(raw))
 
 
 class VerifyStore(Protocol):

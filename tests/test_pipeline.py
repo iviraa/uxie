@@ -26,6 +26,7 @@ class FakeGH:
 
     def get_pr(self, repo, n):
         return {
+            "base": {"sha": "base1"},
             "head": {"sha": self.head},
             "draft": self.draft,
             "state": "open",
@@ -61,6 +62,9 @@ class FakeGH:
 
     def list_reviews(self, repo, n):
         return self.reviews
+
+    def list_comments_for_review(self, repo, n, review_id):
+        return [{"id": 1000 + i, "body": c["body"]} for i, c in enumerate(self.inline)]
 
 
 class FakeStore:
@@ -168,3 +172,18 @@ def test_clean_pr_gets_one_review_then_stays_quiet(tmp_path, cfg):
         empty = FakeModel([tool_turn("submit_review", {"summary": "ok", "findings": []})])
         pipeline.run(_job(), gh, empty, cfg, FakeStore(), None, tmp_path / "w")
     assert len(gh.reviews) == 1 and "no defects found" in gh.reviews[0]["body"]
+
+
+def test_posted_findings_are_queued_for_verification(tmp_path, cfg):
+    gh, queued = FakeGH(), []
+    pipeline.run(_job(), gh, _model(), cfg, FakeStore(), None, tmp_path / "w", queued.append)
+    (req,) = queued
+    assert (req.base_sha, req.head_sha, req.comment_id) == ("base1", "abc", 1000)
+    assert req.finding["line"] == 4 and req.fingerprint == req.finding["fingerprint"]
+
+
+def test_nothing_queued_when_rereview_is_quiet(tmp_path, cfg):
+    gh, queued = FakeGH(), []
+    _run(gh, cfg, tmp_path)
+    pipeline.run(_job(), gh, _model(), cfg, FakeStore(), None, tmp_path / "w", queued.append)
+    assert queued == []
