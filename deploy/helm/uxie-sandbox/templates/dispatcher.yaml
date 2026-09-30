@@ -1,0 +1,187 @@
+{{- if .Values.dispatcher.enabled }}
+{{- $ns := .Values.dispatcher.namespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+# Same node directory as the sandbox's volume, but read-write for the trusted dispatcher
+# (it stages checkouts and dependency envs there).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $ns }}-jobs
+spec:
+  capacity:
+    storage: {{ .Values.jobs.size }}
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: {{ $ns }}
+    name: jobs
+  hostPath:
+    path: {{ .Values.jobs.nodePath }}
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jobs
+  namespace: {{ $ns }}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: {{ $ns }}-jobs
+  resources:
+    requests:
+      storage: {{ .Values.jobs.size }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dispatcher
+  namespace: {{ $ns }}
+{{- range $target := list .Release.Namespace $ns }}
+---
+# Only what it needs: run Jobs and read their pod logs, in the sandbox and build namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: uxie-dispatcher
+  namespace: {{ $target }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: uxie-dispatcher
+  namespace: {{ $target }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: uxie-dispatcher
+subjects:
+  - kind: ServiceAccount
+    name: dispatcher
+    namespace: {{ $ns }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment  # no replicas field: KEDA owns scaling
+metadata:
+  name: dispatcher
+  namespace: {{ $ns }}
+spec:
+  selector:
+    matchLabels:
+      app: uxie-dispatcher
+  template:
+    metadata:
+      labels:
+        app: uxie-dispatcher
+    spec:
+      serviceAccountName: dispatcher
+      terminationGracePeriodSeconds: 900  # let an in-flight proof finish on scale-down
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dispatcher
+          image: {{ .Values.dispatcher.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AWS_REGION
+              value: {{ .Values.dispatcher.region }}
+            - name: AWS_DEFAULT_REGION  # boto3 reads this one; Lambda sets both, pods don't
+              value: {{ .Values.dispatcher.region }}
+            - name: VERIFY_QUEUE_URL
+              value: {{ .Values.dispatcher.queueUrl | quote }}
+            - name: REVIEWS_TABLE
+              value: {{ .Values.dispatcher.reviewsTable }}
+            - name: APP_SECRET_ARN
+              value: {{ .Values.dispatcher.appSecretArn | quote }}
+            - name: PROVER_MODEL_ID
+              value: {{ .Values.dispatcher.proverModelId }}
+            - name: SANDBOX_IMAGE
+              value: {{ .Values.sandbox.image }}
+            - name: JOBS_ROOT
+              value: /jobs
+          envFrom:
+            - secretRef:
+                name: aws-dispatcher  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: jobs
+              mountPath: /jobs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: jobs
+          persistentVolumeClaim:
+            claimName: jobs
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: aws-sqs
+  namespace: {{ $ns }}
+spec:
+  secretTargetRef:
+    - parameter: awsAccessKeyID
+      name: aws-dispatcher
+      key: AWS_ACCESS_KEY_ID
+    - parameter: awsSecretAccessKey
+      name: aws-dispatcher
+      key: AWS_SECRET_ACCESS_KEY
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: dispatcher
+  namespace: {{ $ns }}
+spec:
+  scaleTargetRef:
+    name: dispatcher
+  minReplicaCount: 0  # nothing runs while the queue is empty
+  maxReplicaCount: {{ .Values.dispatcher.maxReplicas }}
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef:
+        name: aws-sqs
+      metadata:
+        queueURL: {{ .Values.dispatcher.queueUrl | quote }}
+        queueLength: "1"
+        awsRegion: {{ .Values.dispatcher.region }}
+{{- end }}

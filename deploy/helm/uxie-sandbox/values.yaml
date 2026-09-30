@@ -13,3 +13,13 @@ sandbox:
 jobs:
   nodePath: /jobs  # where deploy/k3d.sh mounts ~/.uxie/jobs on each node
   size: 10Gi
+dispatcher:
+  enabled: false  # needs KEDA installed and the aws-dispatcher secret (see deploy/k3d.sh)
+  namespace: uxie-system
+  image: uxie-dispatcher:dev
+  region: us-east-2
+  queueUrl: ""
+  reviewsTable: uxie-reviews
+  appSecretArn: ""
+  proverModelId: us.anthropic.claude-sonnet-4-6
+  maxReplicas: 2
