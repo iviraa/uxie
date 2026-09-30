@@ -22,4 +22,5 @@ jobs:
       - run: mypy src/uxie src/lambdas bench
       - run: docker build -t uxie-sandbox:dev sandbox  # enables the container integration tests
       - run: docker build -t uxie-sandbox-go:dev -f sandbox/go.Dockerfile sandbox
+      - run: docker build -t uxie-sandbox-ts:dev -f sandbox/ts.Dockerfile sandbox
       - run: pytest -q

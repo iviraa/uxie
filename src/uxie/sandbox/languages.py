@@ -102,7 +102,43 @@ GO = Language(
     hint=_go_hint,
 )
 
-LANGUAGES: tuple[Language, ...] = (PYTHON, GO)
+
+def _ts_syntax(code: str) -> str | None:
+    if "node:test" not in code:
+        return 'Import the runner with `import { test } from "node:test";`.'
+    if not re.search(r"\btest\s*\(", code):
+        return "No test(...) calls found."
+    return None
+
+
+def _link_node_modules(checkout: Path, has_deps: bool) -> None:
+    """Point the checkout's node_modules at the read-only deps mounted at /env."""
+    link = checkout / "node_modules"
+    if has_deps and not link.exists() and not link.is_symlink():
+        link.symlink_to("/env/mod/node_modules")  # resolved inside the container
+
+
+TYPESCRIPT = Language(
+    name="typescript",
+    suffixes=frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"}),
+    image="uxie-sandbox-ts:dev",
+    test_rules=(
+        "Write a TypeScript test file using Node's built-in runner: "
+        '`import { test } from "node:test"` and `import assert from "node:assert/strict"`. '
+        "It sits next to the flagged file, so import the code under test with a relative path "
+        '(e.g. `import { f } from "./module"`). Don\'t use jest, vitest, or mocha.'
+    ),
+    test_path=lambda path, root: str(PurePosixPath(path).parent / "uxie_verify.test.ts"),
+    syntax_error=_ts_syntax,
+    deps_env=lambda mount: {"NODE_PATH": f"{mount}/mod/node_modules"},  # CommonJS fallback
+    tmp_size="1Gi",
+    tmp_in_memory=False,
+    memory="1Gi",
+    pids=256,
+    prepare=_link_node_modules,
+)
+
+LANGUAGES: tuple[Language, ...] = (PYTHON, GO, TYPESCRIPT)
 
 
 def for_path(path: str) -> Language | None:

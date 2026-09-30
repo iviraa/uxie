@@ -16,7 +16,8 @@ k3d cluster create uxie \
 SANDBOX="$(dirname "$0")/../sandbox"
 docker build -q -t uxie-sandbox:dev "$SANDBOX" >/dev/null
 docker build -q -f "$SANDBOX/go.Dockerfile" -t uxie-sandbox-go:dev "$SANDBOX" >/dev/null
-k3d image import uxie-sandbox:dev uxie-sandbox-go:dev -c uxie
+docker build -q -f "$SANDBOX/ts.Dockerfile" -t uxie-sandbox-ts:dev "$SANDBOX" >/dev/null
+k3d image import uxie-sandbox:dev uxie-sandbox-go:dev uxie-sandbox-ts:dev -c uxie
 helm upgrade --install uxie-sandbox "$(dirname "$0")/helm/uxie-sandbox" \
   --namespace uxie-sandbox --create-namespace --wait
 # Pod Security Admission: reject any pod that isn't non-root, capability-free, seccomp'd

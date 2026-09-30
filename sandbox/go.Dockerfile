@@ -1,7 +1,7 @@
 # Go sandbox: same locks and JSON contract as the Python image; compiles fully offline.
 FROM golang:1.27-bookworm
 
-RUN apt-get update && apt-get install -y --no-install-recommends python3-minimal \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin runner
 

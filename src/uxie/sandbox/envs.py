@@ -433,6 +433,85 @@ class GoDeps:
         return env
 
 
+NODE_IMAGE = "node:24-bookworm-slim"
+
+
+def _node_package(root: Path, target: str | None) -> Path | None:
+    """Nearest directory with a package.json, walking up from target to the repo root."""
+    root = root.resolve()
+    d = ((root / target).parent if target else root).resolve()
+    while True:
+        if (d / "package.json").is_file():
+            return d
+        if d == root or root not in d.parents:
+            return None
+        d = d.parent
+
+
+class NodeDeps:
+    """node_modules from npm with --ignore-scripts, so no package install scripts run."""
+
+    def __init__(
+        self,
+        envs_root: Path,
+        image: str = NODE_IMAGE,
+        runner: BuildRunner | None = None,
+        min_free_bytes: int = MIN_FREE_BYTES,
+    ) -> None:
+        self.root, self.image = envs_root, image
+        self.runner = runner or docker_runner
+        self.min_free_bytes = min_free_bytes
+
+    def ensure(
+        self, repo_root: Path, exclude_newer: str | None = None, target: str | None = None
+    ) -> Path | None:
+        pkg = _node_package(repo_root, target)
+        if pkg is None:
+            return None
+        manifest = json.loads((pkg / "package.json").read_text(errors="replace") or "{}")
+        if not (manifest.get("dependencies") or manifest.get("devDependencies")):
+            return None
+        lock = pkg / "package-lock.json"
+        blob = self.image.encode() + (pkg / "package.json").read_bytes()
+        blob += lock.read_bytes() if lock.is_file() else (exclude_newer or "").encode()
+        key = f"node-{hashlib.sha256(blob).hexdigest()[:16]}"
+        env = self.root / key
+        with _locked(self.root / f"{key}.lock"):
+            if (env / "ok").exists():
+                return env
+            if (self.root / f"{key}.failed").exists():
+                return None
+            return self._build(env, pkg, lock.is_file(), exclude_newer)
+
+    def _build(self, env: Path, pkg: Path, locked: bool, exclude_newer: str | None) -> Path | None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(self.root).free
+        if free < self.min_free_bytes:
+            raise RuntimeError(f"refusing env build: only {free / 1024**3:.1f} GiB free")
+        tmp = env.with_suffix(".tmp")
+        shutil.rmtree(tmp, ignore_errors=True)
+        (tmp / "mod").mkdir(parents=True)
+        shutil.copy2(pkg / "package.json", tmp / "mod" / "package.json")
+        flags = "--ignore-scripts --no-audit --no-fund --loglevel=error"
+        if locked:
+            shutil.copy2(pkg / "package-lock.json", tmp / "mod" / "package-lock.json")
+            install = f"npm ci {flags}"
+        else:  # no lockfile: resolve as of the commit date, like uv's --exclude-newer
+            before = f" --before={exclude_newer}" if exclude_newer else ""
+            install = f"npm install {flags} --no-package-lock{before}"
+        script = f"cd /env/mod && HOME=/tmp npm_config_cache=/tmp/npm {install}"
+        code, log = self.runner(tmp, self.image, ["sh", "-c", script])
+        if code != 0 or _tree_bytes(tmp) > MAX_ENV_BYTES:
+            (self.root / f"{env.name}.failed").write_text(log[-20000:])
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None
+        (tmp / "build.log").write_text(log[-50000:])
+        (tmp / "ok").write_text("node")
+        shutil.rmtree(env, ignore_errors=True)
+        tmp.rename(env)
+        return env
+
+
 class Deps:
     """Dependency envs for every supported language, chosen per finding."""
 
@@ -440,6 +519,7 @@ class Deps:
         self.by_lang: dict[str, Any] = {
             "python": EnvBuilder(envs_root, runner=runner, **kw),
             "go": GoDeps(envs_root, runner=runner, **kw),
+            "typescript": NodeDeps(envs_root, runner=runner, **kw),
         }
 
     def ensure(

@@ -186,7 +186,90 @@ def run_go(test_path: str, timeout: int) -> dict:
     }
 
 
-RUNNERS = {"python": run_python, "go": run_go}
+TSX = "file:///usr/local/lib/node_modules/tsx/dist/loader.mjs"
+# a test that couldn't load or call the code proves nothing (vs. the code misbehaving)
+TS_CANT_RUN = re.compile(
+    r"Cannot find module|ERR_MODULE_NOT_FOUND|does not provide an export named|"
+    r"SyntaxError|TransformError|ReferenceError: \w+ is not defined|Cannot find package"
+)
+
+
+def _ts_reached(lcov: str, target: str) -> list[int] | None:
+    """Executed lines of the target from Node's own coverage (lcov DA:line,count)."""
+    if not target:
+        return None
+    lines: list[int] = []
+    try:
+        with open(lcov) as fh:
+            for row in fh:
+                if row.startswith("DA:"):
+                    line, count = row[3:].strip().split(",")[:2]
+                    if int(count) > 0:
+                        lines.append(int(line))
+    except (OSError, ValueError):
+        return []
+    return sorted(lines)
+
+
+def _ts_classify(report: str, test_path: str, output: str) -> tuple[str, str]:
+    try:
+        root = ET.parse(report).getroot()
+    except (OSError, ET.ParseError):
+        return "error", "no test report (the test file did not load)"
+    cases = root.findall(".//testcase")
+    if cases and all(c.get("name") == test_path for c in cases):
+        # node reports a file that failed to load as one test named after the file
+        why = TS_CANT_RUN.search(output)
+        line = next((ln for ln in output.splitlines() if why and why.group(0) in ln), "")
+        return "error", (line.strip() or "the test file failed to load")[:300]
+    failures = [f for c in cases for f in c.findall("failure")]
+    if not cases:
+        return "error", "no tests ran"
+    if failures:
+        node = failures[0]
+        text = (node.get("message") or node.text or "").strip()
+        first = text.splitlines()[0] if text else "test failed"
+        body = text + (node.text or "")
+        return ("error" if TS_CANT_RUN.search(body) else "failed"), first[:300]
+    return "passed", ""
+
+
+def run_ts(test_path: str, timeout: int) -> dict:
+    report, lcov = "/tmp/report.xml", "/tmp/lcov.info"
+    target = os.environ.get("UXIE_TARGET_FILE", "")
+    cmd = [
+        "node",
+        "--import",
+        TSX,
+        "--test",
+        "--test-reporter=junit",
+        f"--test-reporter-destination={report}",
+    ]
+    if target:  # node's own coverage maps through tsx's source maps line-accurately
+        cmd += [
+            "--experimental-test-coverage",
+            f"--test-coverage-include={target}",
+            "--test-reporter=lcov",
+            f"--test-reporter-destination={lcov}",
+        ]
+    cmd.append(test_path)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else ""
+        return {"outcome": "timeout", "exit_code": -1, "failure": "", "output_tail": out}
+    outcome, failure = _ts_classify(report, test_path, proc.stdout + proc.stderr)
+    reached = _ts_reached(lcov, target)
+    return {
+        "outcome": outcome,
+        "exit_code": proc.returncode,
+        "failure": failure,
+        "output_tail": proc.stdout + proc.stderr,
+        "reached": reached if outcome != "error" else [],
+    }
+
+
+RUNNERS = {"python": run_python, "go": run_go, "typescript": run_ts}
 
 
 def main() -> None:
