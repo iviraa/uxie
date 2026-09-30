@@ -46,6 +46,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--shard", default="0/1", help="k/n: run every n-th case starting at k")
+    ap.add_argument("--focuses", help="comma-separated specialists, e.g. logic,edges,contracts")
     ap.add_argument("--region", default="us-east-2")
     ap.add_argument("--rpm", type=float, default=9, help="stay under the account's Bedrock quota")
     args = ap.parse_args()
@@ -59,6 +60,7 @@ def main() -> None:
         max_changed_lines=10**9,
         price_in_per_mtok=args.price_in,
         price_out_per_mtok=args.price_out,
+        focuses=tuple(args.focuses.split(",")) if args.focuses else None,
     )
     out = RESULTS / f"{args.variant}.jsonl"
     out.parent.mkdir(exist_ok=True)

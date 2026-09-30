@@ -33,3 +33,4 @@ NOTES.md
 bench/cases.jsonl
 bench/local/
 bench/cases_real.jsonl
+bench/cases_*.jsonl

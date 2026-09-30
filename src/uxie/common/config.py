@@ -23,6 +23,7 @@ class ReviewSettings:
     price_out_per_mtok: float
     region: str | None = None
     post_confidence: float | None = None  # below this, findings wait for a sandbox proof
+    focuses: tuple[str, ...] | None = None  # which specialists run (None = all)
 
 
 @dataclass(frozen=True)

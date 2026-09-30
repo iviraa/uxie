@@ -68,7 +68,7 @@ def _specialists(
         return focus, conv.run(0, force=True), conv.usage
 
     # copy the caller's context into each thread so model-call spans nest under the review
-    focuses = list(prompts.SPECIALISTS)
+    focuses = list(cfg.focuses or prompts.SPECIALISTS)
     ctxs = [contextvars.copy_context() for _ in focuses]
     with ThreadPoolExecutor(len(focuses)) as pool:
         results = list(pool.map(lambda cf: cf[0].run(one, cf[1]), zip(ctxs, focuses, strict=True)))
