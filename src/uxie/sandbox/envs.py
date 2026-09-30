@@ -7,6 +7,7 @@ runs at install time. The PR's own project is never installed; tests import it f
 from __future__ import annotations
 
 import ast
+import os
 import contextlib
 import fcntl
 import hashlib
@@ -230,6 +231,13 @@ def docker_runner(env: Path, image: str, command: list[str]) -> tuple[int, str]:
         "no-new-privileges",
         "--memory",
         "2g",
+        # the host user, not root: without capabilities, root can't write to a host-owned dir
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "-e",
+        "HOME=/tmp",
+        "-e",
+        "UV_CACHE_DIR=/tmp/uv",
         "-v",
         f"{env.resolve()}:/env",
         image,

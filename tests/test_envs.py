@@ -109,7 +109,9 @@ def test_build_and_import_in_sandbox():
         env = EnvBuilder(work / "envs", min_free_bytes=small).ensure(
             repo, exclude_newer="2025-01-01T00:00:00Z"
         )
-        assert env is not None and (env / "site" / "six.py").exists()
+        failed = list((work / "envs").glob("*.failed"))
+        assert env is not None, failed[0].read_text()[-2000:] if failed else "no env, no log"
+        assert (env / "site" / "six.py").exists()
         assert not list((env / "site").glob("mypkg*"))  # the project itself never installed
         cached = EnvBuilder(work / "envs", min_free_bytes=small).ensure(
             repo, "2025-01-01T00:00:00Z"
