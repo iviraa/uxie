@@ -124,9 +124,16 @@ def test_specialists_run_in_parallel_and_dedupe(tmp_path, cfg):
     weak = FINDING | {"confidence": 0.6, "title": "weak"}
     strong = FINDING | {"confidence": 0.95, "title": "strong"}
     other = FINDING | {"line": 22, "title": "edge"}
-    model = FocusModel({"only on logic": [weak], "only on edge": [other, strong], "contracts:": []})
+    model = FocusModel(
+        {
+            "only on logic": [weak],
+            "only on edge": [other, strong],
+            "contracts:": [],
+            "behavior over time": [],
+        }
+    )
     res = review(_pr(), _ws(tmp_path), model, replace(cfg, mode="specialists"))
-    assert len(model.systems) == 3
+    assert len(model.systems) == 4
     assert sorted(f.title for f in res.findings) == ["edge", "strong"]  # dupe kept the stronger
     assert res.stats["raw_logic"] == 1 and res.stats["raw_edges"] == 2 and res.stats["dupe"] == 1
-    assert res.usage.calls == 3 and res.error is None
+    assert res.usage.calls == 4 and res.error is None

@@ -36,7 +36,11 @@ SPECIALISTS = {
     "edges": "Focus only on edge cases and error handling: None/empty/zero inputs, boundary "
     "values, unhandled exceptions, missing validation, and failure paths that leak resources.",
     "contracts": "Focus only on contracts: changed signatures or return values that break "
-    "callers, violated invariants, state mutated in the wrong order, and concurrency issues.",
+    "callers, violated invariants, and concurrency issues.",
+    "behavior": "Focus only on behavior over time: state that is not updated or updated twice, "
+    "operations in the wrong order, side effects that repeat or go missing (on retry, on error), "
+    "errors that are swallowed so failures look like success, broken idempotency, stale caches, "
+    "and inputs that are mutated when they should be copied.",
 }
 
 
