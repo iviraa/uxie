@@ -18,6 +18,7 @@ import subprocess
 import tomllib
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
+from typing import Any
 
 BUILDER_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
 SITE = "site"  # packages land in <env>/site, mounted at /env/site in the sandbox
@@ -355,3 +356,102 @@ class EnvBuilder:
         code, output = self.runner(env, self.image, uv)
         log.append(f"== {name} rc={code}\n{output}")
         return code == 0
+
+
+GO_IMAGE = "golang:1.27-bookworm"
+
+
+def _go_module(root: Path, target: str | None) -> Path | None:
+    """Directory of the go.mod that owns target (or the repo root's go.mod)."""
+    d = (root / target).parent if target else root
+    root = root.resolve()
+    d = d.resolve()
+    while True:
+        if (d / "go.mod").is_file():
+            return d
+        if d == root or root not in d.parents:
+            return None
+        d = d.parent
+
+
+class GoDeps:
+    """Module cache from `go mod download`: fetches source only, runs no code."""
+
+    def __init__(
+        self,
+        envs_root: Path,
+        image: str = GO_IMAGE,
+        runner: BuildRunner | None = None,
+        min_free_bytes: int = MIN_FREE_BYTES,
+    ) -> None:
+        self.root, self.image = envs_root, image
+        self.runner = runner or docker_runner
+        self.min_free_bytes = min_free_bytes
+
+    def ensure(
+        self, repo_root: Path, exclude_newer: str | None = None, target: str | None = None
+    ) -> Path | None:
+        mod = _go_module(repo_root, target)
+        if mod is None or (mod / "vendor").is_dir():
+            return None  # no module, or dependencies are vendored in the repo already
+        gomod, gosum = (mod / "go.mod").read_bytes(), (mod / "go.sum")
+        if not gosum.is_file():
+            return None  # nothing to download
+        digest = hashlib.sha256(self.image.encode() + gomod + gosum.read_bytes()).hexdigest()
+        key = f"go-{digest[:16]}"
+        env = self.root / key
+        with _locked(self.root / f"{key}.lock"):
+            if (env / "ok").exists():
+                return env
+            if (self.root / f"{key}.failed").exists():
+                return None
+            return self._build(env, mod)
+
+    def _build(self, env: Path, mod: Path) -> Path | None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(self.root).free
+        if free < self.min_free_bytes:
+            raise RuntimeError(f"refusing env build: only {free / 1024**3:.1f} GiB free")
+        tmp = env.with_suffix(".tmp")
+        shutil.rmtree(tmp, ignore_errors=True)
+        (tmp / "mod").mkdir(parents=True)
+        shutil.copy2(mod / "go.mod", tmp / "mod" / "go.mod")
+        shutil.copy2(mod / "go.sum", tmp / "mod" / "go.sum")
+        script = (
+            "cd /env/mod && GOMODCACHE=/env/gomod GOFLAGS=-modcacherw GOTOOLCHAIN=local "
+            "GOPATH=/tmp/gopath GOCACHE=/tmp/gocache go mod download"
+        )
+        code, log = self.runner(tmp, self.image, ["sh", "-c", script])
+        if code != 0 or _tree_bytes(tmp) > MAX_ENV_BYTES:
+            (self.root / f"{env.name}.failed").write_text(log[-20000:])
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None
+        (tmp / "build.log").write_text(log[-50000:])
+        (tmp / "ok").write_text("go")
+        shutil.rmtree(env, ignore_errors=True)
+        tmp.rename(env)
+        return env
+
+
+class Deps:
+    """Dependency envs for every supported language, chosen per finding."""
+
+    def __init__(self, envs_root: Path, runner: BuildRunner | None = None, **kw: Any) -> None:
+        self.by_lang: dict[str, Any] = {
+            "python": EnvBuilder(envs_root, runner=runner, **kw),
+            "go": GoDeps(envs_root, runner=runner, **kw),
+        }
+
+    def ensure(
+        self,
+        repo_root: Path,
+        exclude_newer: str | None = None,
+        target: str | None = None,
+        lang: str = "python",
+    ) -> Path | None:
+        builder = self.by_lang.get(lang)
+        if builder is None:
+            return None
+        if lang == "python":
+            return builder.ensure(repo_root, exclude_newer)  # type: ignore[no-any-return]
+        return builder.ensure(repo_root, exclude_newer, target)  # type: ignore[no-any-return]

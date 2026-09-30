@@ -20,7 +20,7 @@ from uxie.common.logger import get_logger, log
 from uxie.github.app_auth import installation_token
 from uxie.github.client import GitHubClient
 from uxie.review.model import BedrockModel
-from uxie.sandbox.envs import EnvBuilder
+from uxie.sandbox.envs import Deps
 from uxie.sandbox.k8s import K8sBuildRunner, K8sExecutor
 from uxie.store.reviews import Busy, ReviewStore
 from uxie.verify.dispatcher import Snapshots, handle
@@ -116,7 +116,7 @@ def main() -> None:
     jobs = Path(cfg.jobs_root)
     model = BedrockModel(cfg.prover_model_id, cfg.region)
     ex = K8sExecutor(jobs)  # each language brings its own sandbox image
-    envs = EnvBuilder(jobs / "envs", runner=K8sBuildRunner(jobs))
+    envs = Deps(jobs / "envs", runner=K8sBuildRunner(jobs))  # python, go, ...
     snaps = Snapshots(jobs / "snapshots")
     store = ReviewStore(cfg.reviews_table)
 

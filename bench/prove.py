@@ -26,8 +26,9 @@ from bench.score import RESULTS, latest
 from uxie.review.findings import Finding
 from uxie.review.model import BedrockModel
 from uxie.review.workspace import Workspace
-from uxie.sandbox.envs import EnvBuilder
+from uxie.sandbox.envs import Deps
 from uxie.sandbox.executor import DockerExecutor, Executor
+from uxie.sandbox.languages import PYTHON, for_path
 from uxie.sandbox.spec import CONFIRMED, LIKELY, REFUTED
 from uxie.verify.prover import ProverSettings, TestWriter, prove
 
@@ -51,16 +52,19 @@ def prove_case(
     review: dict[str, Any],
     model: BedrockModel,
     ex: Executor,
-    envs: EnvBuilder,
+    envs: Deps,
 ) -> dict[str, Any]:
     t0 = time.monotonic()
     pr, head_root = materialize(case)
     base_root = snapshot(case.repo, case.base)
-    env = envs.ensure(head_root, _commit_date(case))
+    date = _commit_date(case)
     proofs = []
+    env: Path | None = None
     for raw in review["findings"]:
         f = Finding(**raw)
         work = JOBS / f"bench-{uuid.uuid4().hex[:8]}"
+        lang = for_path(f.path) or PYTHON
+        env = envs.ensure(head_root, date, f.path, lang.name)
         writer = None
         if WRITER_FACTORY is not None:  # alternative test writer gets a private repo copy
             view = work / "view"
@@ -86,7 +90,15 @@ def prove_case(
             cost, turns = getattr(writer, "cost_usd", 0.0), getattr(writer, "turns", 0)
         else:
             cost, turns = p.usage.cost_usd(*PRICES), p.usage.calls
-        proofs.append({**p.to_dict(), "cost_usd": cost, "turns": turns})
+        proofs.append(
+            {
+                **p.to_dict(),
+                "cost_usd": cost,
+                "turns": turns,
+                "env": env.name if env else None,
+                "lang": lang.name,
+            }
+        )
     if case.mutation:  # mutated copies are per-case; don't let them pile up on disk
         shutil.rmtree(head_root, ignore_errors=True)
     return {
@@ -148,7 +160,7 @@ def run(args: argparse.Namespace) -> None:
         ex = K8sExecutor(JOBS)
     else:
         ex = DockerExecutor()
-    envs = EnvBuilder(JOBS / "envs")
+    envs = Deps(JOBS / "envs")
     lock, spent = threading.Lock(), 0.0
     with ThreadPoolExecutor(args.workers) as pool, out.open("a") as fh:
         futs = {pool.submit(prove_case, cases[r["case_id"]], r, model, ex, envs): r for r in todo}

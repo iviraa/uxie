@@ -130,11 +130,24 @@ def verify(
     workdir: Path,
     ex: Executor,
     env: Path | None = None,
+    lang: Language = PYTHON,
 ) -> Verdict:
-    head = ex.run(stage(head_snapshot, job, workdir / "head"), job.test_path, job.timeout_s, env)
+    head = ex.run(
+        stage(head_snapshot, job, workdir / "head", lang, env is not None),
+        job.test_path,
+        job.timeout_s,
+        env,
+        None,
+        lang,
+    )
     base = None
     if head.outcome == "failed" and base_snapshot is not None:  # base only matters if head fails
         base = ex.run(
-            stage(base_snapshot, job, workdir / "base"), job.test_path, job.timeout_s, env
+            stage(base_snapshot, job, workdir / "base", lang, env is not None),
+            job.test_path,
+            job.timeout_s,
+            env,
+            None,
+            lang,
         )
     return Verdict(job.job_id, decide(head, base), head, base)

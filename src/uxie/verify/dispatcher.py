@@ -20,6 +20,7 @@ from uxie.review.model import ChatModel
 from uxie.review.reviewer import PullRequest
 from uxie.review.workspace import Workspace
 from uxie.sandbox.executor import Executor
+from uxie.sandbox.languages import PYTHON, for_path
 from uxie.sandbox.spec import CONFIRMED, LIKELY
 from uxie.verify.prover import ProverSettings, prove
 from uxie.verify.render import verdict_reply
@@ -39,7 +40,13 @@ class VerifyStore(Protocol):
 
 
 class EnvSource(Protocol):
-    def ensure(self, repo_root: Path, exclude_newer: str | None = None) -> Path | None: ...
+    def ensure(
+        self,
+        repo_root: Path,
+        exclude_newer: str | None = None,
+        target: str | None = None,
+        lang: str = "python",
+    ) -> Path | None: ...
 
 
 class Snapshots:
@@ -112,7 +119,8 @@ def _handle(
             head_root = snaps.get(gh, req.repo, req.head_sha)
             base_root = snaps.get(gh, req.repo, req.base_sha)
         with telemetry.span("verify.env") as s:
-            env = envs.ensure(head_root) if envs else None
+            lang = for_path(req.finding.get("path", "")) or PYTHON
+            env = envs.ensure(head_root, None, req.finding.get("path"), lang.name) if envs else None
             s.set_attribute("env.id", env.name if env else "none")
         proof = prove(
             Finding(**req.finding),
