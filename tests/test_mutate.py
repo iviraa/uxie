@@ -56,3 +56,51 @@ def test_handles_unicode_offsets():
 @pytest.mark.parametrize("src", ["def (:\n", "x = 1\n"])
 def test_nothing_to_do(src):
     assert mutate("f.py", src, {1}, random.Random(0)) is None
+
+
+BEHAVIOR_SRC = """\
+class Account:
+    def withdraw(self, n, fee):
+        if self.frozen is None:
+            return
+        self.balance -= n
+        self.history.append(n)
+        self.log(n)
+        try:
+            self.save()
+        except IOError:
+            raise
+        charge(n, fee)
+"""
+
+
+def _behaviors(op):
+    from bench.mutate import mutate as m
+
+    seen = set()
+    for seed in range(60):
+        got = m("a.py", BEHAVIOR_SRC, set(range(1, 13)), random.Random(seed), ops=(op,))
+        if got:
+            new, mut = got
+            ast.parse(new)
+            seen.add((mut.line, mut.after))
+    return seen
+
+
+def test_behavioral_mutations_for_python():
+    assert (5, "pass") in _behaviors("drop-update")  # balance never decreases
+    assert (11, "pass") in _behaviors("swallow-error")  # the IOError is swallowed
+    assert (3, "if False:") in _behaviors("drop-guard")
+    assert (12, "charge(fee, n)") in _behaviors("swap-args")
+    assert any(line == 6 for line, _ in _behaviors("swap-stmts"))  # append and log swapped
+
+
+def test_default_ops_are_unchanged_logic_only():
+    got = mutate("a.py", BEHAVIOR_SRC, set(range(1, 13)), random.Random(0))
+    assert got is None or got[1].op in (
+        "compare",
+        "boolop",
+        "drop-not",
+        "off-by-one",
+        "flip-return",
+    )

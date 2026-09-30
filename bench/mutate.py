@@ -120,27 +120,128 @@ def _int_consts(node: ast.AST) -> list[ast.Constant]:
     ]
 
 
+LOGIC = ("compare", "boolop", "drop-not", "off-by-one", "flip-return")
+BEHAVIOR = ("drop-update", "swap-stmts", "swallow-error", "drop-guard", "swap-args")
+
+
+def _seg(n: ast.AST) -> tuple[int, int, int] | None:
+    """(line, start col, end col) for a node that sits on one line."""
+    ln, end = getattr(n, "lineno", None), getattr(n, "end_lineno", None)
+    if ln is None or ln != end:
+        return None
+    return ln, n.col_offset, n.end_col_offset or 0  # type: ignore[attr-defined]
+
+
+def _is_state(t: ast.AST) -> bool:
+    return isinstance(t, ast.Attribute | ast.Subscript)
+
+
+def _guard(test: ast.AST) -> bool:
+    for n in ast.walk(test):
+        if isinstance(n, ast.Compare) and any(
+            isinstance(c, ast.Constant) and c.value is None for c in n.comparators
+        ):
+            return True
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.Not):
+            return True
+    return False
+
+
+def _behavior(tree: ast.AST, lines: list[bytes], allowed: set[int]) -> list[_Edit]:
+    out: list[_Edit] = []
+
+    def add(n: ast.AST, new: bytes, op: str) -> None:
+        seg = _seg(n)
+        if seg and seg[0] in allowed:
+            out.append(_Edit(seg[0], seg[1], seg[2], new, op))
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AugAssign)
+            and _is_state(node.target)
+            or (isinstance(node, ast.Assign) and any(_is_state(t) for t in node.targets))
+        ):
+            add(node, b"pass", "drop-update")
+        elif isinstance(node, ast.ExceptHandler):
+            for stmt in node.body:
+                if isinstance(stmt, ast.Raise):
+                    add(stmt, b"pass", "swallow-error")
+        elif isinstance(node, ast.If) and _guard(node.test):
+            add(node.test, b"False", "drop-guard")
+        elif isinstance(node, ast.Call) and len(node.args) >= 2:
+            a, b = node.args[0], node.args[1]
+            sa, sb = _seg(a), _seg(b)
+            if (
+                isinstance(a, ast.Name)
+                and isinstance(b, ast.Name)
+                and a.id != b.id
+                and sa
+                and sb
+                and sa[0] == sb[0]
+                and sa[0] in allowed
+            ):
+                raw = lines[sa[0] - 1]
+                new = raw[sb[1] : sb[2]] + raw[sa[2] : sb[1]] + raw[sa[1] : sa[2]]
+                out.append(_Edit(sa[0], sa[1], sb[2], new, "swap-args"))
+        for body in (getattr(node, f, None) for f in ("body", "orelse", "finalbody")):
+            if not isinstance(body, list):
+                continue
+            simple = (ast.Expr, ast.AugAssign, ast.Assign)
+            for x, y in zip(body, body[1:], strict=False):
+                sx, sy = _seg(x), _seg(y)
+                if (
+                    isinstance(x, simple)
+                    and isinstance(y, simple)
+                    and sx
+                    and sy
+                    and sy[0] == sx[0] + 1
+                    and sx[0] in allowed
+                    and not any(isinstance(t, ast.Name) for t in getattr(x, "targets", []))
+                    and lines[sx[0] - 1].strip() != lines[sy[0] - 1].strip()
+                ):
+                    out.append(_Edit(sx[0], 0, 0, b"", "swap-stmts"))  # swap this line and next
+    return out
+
+
 def mutate(
-    path: str, source: str, allowed_lines: set[int], rng: random.Random
+    path: str,
+    source: str,
+    allowed_lines: set[int],
+    rng: random.Random,
+    ops: tuple[str, ...] = LOGIC,
 ) -> tuple[str, Mutation] | None:
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return None
     lines = source.encode().split(b"\n")
-    cands = _candidates(tree, lines, allowed_lines)
-    rng.shuffle(cands)
-    for ed in cands:
-        raw = lines[ed.line - 1]
-        new_line = raw[: ed.start] + ed.new + raw[ed.end :]
-        mutated_lines = [*lines[: ed.line - 1], new_line, *lines[ed.line :]]
-        mutated = b"\n".join(mutated_lines).decode()
-        try:
-            ast.parse(mutated)
-        except SyntaxError:
-            continue
-        if mutated != source:
-            return mutated, Mutation(
-                path, ed.line, ed.op, raw.decode().strip(), new_line.decode().strip()
-            )
+    by_op: dict[str, list[_Edit]] = {}
+    for ed in _candidates(tree, lines, allowed_lines) + _behavior(tree, lines, allowed_lines):
+        if ed.op in ops:
+            by_op.setdefault(ed.op, []).append(ed)
+    kinds = sorted(by_op)
+    rng.shuffle(kinds)  # pick a category first so frequent ones (compare) don't dominate
+    for kind in kinds:
+        cands = by_op[kind]
+        rng.shuffle(cands)
+        for ed in cands:
+            raw = lines[ed.line - 1]
+            if ed.op == "swap-stmts":
+                nxt = lines[ed.line]
+                ind_a = raw[: len(raw) - len(raw.lstrip())]
+                ind_b = nxt[: len(nxt) - len(nxt.lstrip())]
+                new_line, new_next = ind_a + nxt.lstrip(), ind_b + raw.lstrip()
+                mutated_lines = [*lines[: ed.line - 1], new_line, new_next, *lines[ed.line + 1 :]]
+            else:
+                new_line = raw[: ed.start] + ed.new + raw[ed.end :]
+                mutated_lines = [*lines[: ed.line - 1], new_line, *lines[ed.line :]]
+            mutated = b"\n".join(mutated_lines).decode()
+            try:
+                ast.parse(mutated)
+            except SyntaxError:
+                continue
+            if mutated != source:
+                return mutated, Mutation(
+                    path, ed.line, ed.op, raw.decode().strip(), new_line.decode().strip()
+                )
     return None
