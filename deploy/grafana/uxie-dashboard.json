@@ -1,8 +1,8 @@
 {
-  "title": "uxie: PR review agent",
+  "title": "uxie",
   "uid": "uxie-overview",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "time": {
     "from": "now-7d",
     "to": "now"
