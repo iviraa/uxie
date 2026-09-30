@@ -22,4 +22,5 @@ dispatcher:
   reviewsTable: uxie-reviews
   appSecretArn: ""
   proverModelId: us.anthropic.claude-sonnet-4-6
+  otelSecretArn: ""  # optional: {"endpoint", "headers"} for Grafana Cloud OTLP
   maxReplicas: 2

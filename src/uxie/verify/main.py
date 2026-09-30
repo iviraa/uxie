@@ -14,7 +14,7 @@ from typing import Any
 
 import boto3
 
-from uxie.common import config
+from uxie.common import config, telemetry
 from uxie.common.logger import get_logger, log
 from uxie.github.app_auth import installation_token
 from uxie.github.client import GitHubClient
@@ -53,6 +53,10 @@ def serve(
 
 def main() -> None:
     cfg = config.dispatcher_settings()
+    otel = config.otel_settings()
+    telemetry.setup(
+        "uxie-dispatcher", otel.endpoint if otel else None, otel.headers if otel else None
+    )
     secret = config.app_secret(cfg.app_secret_arn)
     jobs = Path(cfg.jobs_root)
     model = BedrockModel(cfg.prover_model_id, cfg.region)

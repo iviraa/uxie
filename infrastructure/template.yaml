@@ -27,6 +27,10 @@ Parameters:
   AlertEmail:
     Type: String
     Description: Where dead-letter alarms go.
+  OtelSecretArn:
+    Type: String
+    Default: ""
+    Description: 'Optional Secrets Manager secret {"endpoint", "headers"} for OTLP export (Grafana Cloud).'
   VerifyFindings:
     Type: String
     Default: "false"
@@ -35,6 +39,7 @@ Parameters:
 
 Conditions:
   VerifyOn: !Equals [!Ref VerifyFindings, "true"]
+  OtelOn: !Not [!Equals [!Ref OtelSecretArn, ""]]
 
 Globals:
   Function:
@@ -118,7 +123,7 @@ Resources:
                 Resource: !GetAtt VerifyQueue.Arn
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: !Ref AppSecretArn
+                Resource: !If [OtelOn, [!Ref AppSecretArn, !Ref OtelSecretArn], !Ref AppSecretArn]
               - Effect: Allow
                 Action: bedrock:InvokeModel
                 Resource: "*"
@@ -171,6 +176,7 @@ Resources:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           REVIEW_MODE: !Ref ReviewMode
           VERIFY_QUEUE_URL: !If [VerifyOn, !Ref VerifyQueue, ""]
+          OTEL_SECRET_ARN: !Ref OtelSecretArn
           PRICE_IN_PER_MTOK: !Ref PriceInPerMTok
           PRICE_OUT_PER_MTOK: !Ref PriceOutPerMTok
       Policies:
@@ -185,6 +191,12 @@ Resources:
             - Effect: Allow
               Action: bedrock:InvokeModel  # Converse is authorized as InvokeModel
               Resource: "*"
+            - !If
+              - OtelOn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref OtelSecretArn
+              - !Ref AWS::NoValue
             - Effect: Allow
               Action: s3:PutObject
               Resource: !Sub

@@ -124,6 +124,10 @@ spec:
               value: {{ .Values.sandbox.image }}
             - name: JOBS_ROOT
               value: /jobs
+            {{- with .Values.dispatcher.otelSecretArn }}
+            - name: OTEL_SECRET_ARN
+              value: {{ . | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: aws-dispatcher  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY

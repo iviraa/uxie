@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
+from uxie.common import telemetry
 from uxie.common.logger import get_logger, log
 from uxie.diff import filters
 from uxie.github.client import GitHubClient
@@ -71,6 +73,27 @@ def handle(
     cfg: ProverSettings | None = None,
 ) -> str:
     """Returns the verdict, or duplicate | stale."""
+    t0 = time.monotonic()
+    attrs = {"pr.repo": req.repo, "pr.number": req.pr_number, "finding.id": req.fingerprint}
+    with telemetry.span("verify", **attrs) as s:
+        verdict = _handle(req, gh, model, ex, envs, snaps, store, work_root, cfg)
+        s.set_attribute("verify.verdict", verdict)
+    telemetry.verdicts.add(1, {"verdict": verdict})
+    telemetry.proof_latency.record(time.monotonic() - t0, {"verdict": verdict})
+    return verdict
+
+
+def _handle(
+    req: VerifyRequest,
+    gh: GitHubClient,
+    model: ChatModel,
+    ex: Executor,
+    envs: EnvSource | None,
+    snaps: Snapshots,
+    store: VerifyStore,
+    work_root: Path,
+    cfg: ProverSettings | None,
+) -> str:
     key = (req.repo, req.pr_number, req.head_sha, req.fingerprint)
     if not store.claim_verify(*key):
         return "duplicate"
@@ -81,9 +104,12 @@ def handle(
             store.finish_verify(*key, "stale")
             return "stale"
         files = filters.select(files_from_api(gh.list_pr_files(req.repo, req.pr_number)))
-        head_root = snaps.get(gh, req.repo, req.head_sha)
-        base_root = snaps.get(gh, req.repo, req.base_sha)
-        env = envs.ensure(head_root) if envs else None
+        with telemetry.span("verify.checkout"):
+            head_root = snaps.get(gh, req.repo, req.head_sha)
+            base_root = snaps.get(gh, req.repo, req.base_sha)
+        with telemetry.span("verify.env") as s:
+            env = envs.ensure(head_root) if envs else None
+            s.set_attribute("env.id", env.name if env else "none")
         proof = prove(
             Finding(**req.finding),
             PullRequest(req.title, req.body, files),

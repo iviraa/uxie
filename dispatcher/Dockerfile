@@ -2,6 +2,7 @@
 FROM python:3.12-slim
 
 RUN pip install --no-cache-dir "boto3>=1.34" "httpx>=0.27" "pyjwt[crypto]>=2.8" "kubernetes>=31" \
+    "opentelemetry-sdk>=1.27" "opentelemetry-exporter-otlp-proto-http>=1.27" \
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin dispatcher
 
 COPY src/uxie /opt/app/uxie

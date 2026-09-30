@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from uxie.common import telemetry
 from uxie.review import tools
 from uxie.review.agent import Conversation
 from uxie.review.findings import Finding
@@ -213,13 +214,18 @@ def prove(
                 finding.to_dict(),
                 cfg.timeout_s,
             )
-            proof.head = ex.run(
-                stage(head_snapshot, job, workdir / "head"),
-                TEST_PATH,
-                cfg.timeout_s,
-                env,
-                finding.path,  # trace which lines of the flagged file the test executes
-            )
+            with telemetry.span(
+                "sandbox.run", **{"sandbox.side": "head", "attempt": attempt}
+            ) as sp:
+                proof.head = ex.run(
+                    stage(head_snapshot, job, workdir / "head"),
+                    TEST_PATH,
+                    cfg.timeout_s,
+                    env,
+                    finding.path,  # trace which lines of the flagged file the test executes
+                )
+                sp.set_attribute("sandbox.outcome", proof.head.outcome)
+                sp.set_attribute("sandbox.reached", proof.head.reaches(finding.line))
             head = proof.head
             if head.outcome == ERROR:
                 problem = f"{head.failure}".strip() or "the test errored before asserting"

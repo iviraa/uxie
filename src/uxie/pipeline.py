@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from uxie.common import telemetry
 from uxie.common.config import ReviewSettings
 from uxie.common.logger import get_logger, log
 from uxie.diff import filters
@@ -38,6 +40,29 @@ def files_from_api(raw: list[dict[str, Any]]) -> list[FilePatch]:
 
 
 def run(
+    job: ReviewJob,
+    gh: GitHubClient,
+    model: ChatModel,
+    cfg: ReviewSettings,
+    store: ReviewStore,
+    lake: Lake | None,
+    workdir: Path,
+    enqueue: Callable[[VerifyRequest], None] | None = None,
+) -> str:
+    """Traced entry point; see _run."""
+    t0 = time.monotonic()
+    with telemetry.span(
+        "review", **{"pr.repo": job.repo, "pr.number": job.pr_number, "review.trigger": job.trigger}
+    ) as s:
+        status = _run(job, gh, model, cfg, store, lake, workdir, enqueue)
+        s.set_attribute("review.status", status)
+    telemetry.reviews.add(1, {"status": status, "mode": cfg.mode})
+    if status == "done":
+        telemetry.review_latency.record(time.monotonic() - t0, {"mode": cfg.mode})
+    return status
+
+
+def _run(
     job: ReviewJob,
     gh: GitHubClient,
     model: ChatModel,
@@ -96,6 +121,9 @@ def run(
         fresh = [f for f in result.findings if f.fingerprint not in seen]
         repeats = len(result.findings) - len(fresh)
         reviewed_before = bool(own)
+        telemetry.cost.add(result.cost_usd, {"component": "review", "model": cfg.model_id})
+        for f in fresh:
+            telemetry.findings.add(1, {"severity": f.severity, "category": f.category})
         review_id = 0
         if fresh or force or not reviewed_before:
             note = f"{repeats} earlier finding(s) still apply." if repeats else ""

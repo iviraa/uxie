@@ -71,6 +71,23 @@ def dispatcher_settings() -> DispatcherSettings:
     )
 
 
+@dataclass(frozen=True)
+class OtelSettings:
+    endpoint: str  # e.g. https://otlp-gateway-prod-us-east-2.grafana.net/otlp
+    headers: dict[str, str]
+
+
+def otel_settings() -> OtelSettings | None:
+    """OTLP export target from a Secrets Manager secret (the auth header is a credential)."""
+    arn = os.environ.get("OTEL_SECRET_ARN")
+    if not arn:
+        return None
+    raw = boto3.client("secretsmanager").get_secret_value(SecretId=arn)["SecretString"]
+    data = json.loads(raw)
+    headers = dict(h.split("=", 1) for h in str(data.get("headers", "")).split(",") if "=" in h)
+    return OtelSettings(endpoint=str(data["endpoint"]).rstrip("/"), headers=headers)
+
+
 def verify_queue_url() -> str | None:
     return os.environ.get("VERIFY_QUEUE_URL") or None  # unset: reviews aren't verified
 

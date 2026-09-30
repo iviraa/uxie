@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from uxie.common import telemetry
 from uxie.review import tools
 from uxie.review.model import ChatModel, Usage
 from uxie.review.workspace import Workspace
@@ -51,7 +52,20 @@ class Conversation:
                 force = True
             choice = {"tool": {"name": self.final}} if force else {"auto": {}}
             msgs = _cached(self.messages) if self.cache else self.messages
-            resp = self.model.converse(self.system, msgs, self.specs, choice)
+            model_id = str(getattr(self.model, "model_id", "unknown"))
+            with telemetry.span("llm.converse", **{"llm.model": model_id, "llm.turn": turn}) as s:
+                resp = self.model.converse(self.system, msgs, self.specs, choice)
+                u = resp.usage
+                s.set_attribute("llm.input_tokens", int(u.get("inputTokens", 0)))
+                s.set_attribute("llm.output_tokens", int(u.get("outputTokens", 0)))
+                s.set_attribute("llm.cache_read_tokens", int(u.get("cacheReadInputTokens", 0)))
+                s.set_attribute("llm.stop_reason", resp.stop_reason)
+            for kind, key in (
+                ("input", "inputTokens"),
+                ("output", "outputTokens"),
+                ("cache_read", "cacheReadInputTokens"),
+            ):
+                telemetry.tokens.add(int(u.get(key, 0)), {"model": model_id, "kind": kind})
             self.usage.add(resp.usage)
             self.messages.append({"role": "assistant", "content": resp.content})
 
@@ -80,7 +94,9 @@ class Conversation:
         self.messages.append({"role": "user", "content": results})
 
     def _dispatch(self, u: dict[str, Any]) -> str:
-        out = tools.dispatch(self.ws, u["name"], u.get("input") or {})
+        with telemetry.span(f"tool.{u['name']}") as s:
+            out = tools.dispatch(self.ws, u["name"], u.get("input") or {})
+            s.set_attribute("tool.output_chars", len(out))
         self.calls.append({"name": u["name"], "input": u.get("input"), "chars": len(out)})
         return out
 

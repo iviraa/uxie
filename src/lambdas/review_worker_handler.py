@@ -10,7 +10,7 @@ from typing import Any
 import boto3
 
 from uxie import pipeline
-from uxie.common import config
+from uxie.common import config, telemetry
 from uxie.common.logger import get_logger, log
 from uxie.github.app_auth import installation_token
 from uxie.github.client import GitHubClient
@@ -21,6 +21,10 @@ from uxie.store.reviews import ReviewStore
 from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
+_otel = config.otel_settings()
+telemetry.setup(
+    "uxie-review-worker", _otel.endpoint if _otel else None, _otel.headers if _otel else None
+)
 
 
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
@@ -31,6 +35,7 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         except Exception:
             logger.exception("review failed", extra={"extras": {"message_id": record["messageId"]}})
             failures.append({"itemIdentifier": record["messageId"]})
+    telemetry.flush()
     return {"batchItemFailures": failures}
 
 
