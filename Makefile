@@ -1,4 +1,4 @@
-.PHONY: install lint test build deploy dispatcher dashboard clean
+.PHONY: install lint test check build deploy dispatcher dashboard clean
 
 export PYTHONPATH := src:.
 
@@ -33,3 +33,9 @@ dispatcher:  ## rebuild + roll out the verify dispatcher on the local k3s cluste
 dashboard:  ## rebuild the Grafana dashboard from code and upload it
 	python deploy/grafana/build_dashboard.py
 	python deploy/grafana/push.py $${GRAFANA_URL:?set GRAFANA_URL=https://<stack>.grafana.net}
+
+check:  ## everything CI runs except container tests; use before every commit
+	ruff check .
+	ruff format --check .
+	mypy src/uxie src/lambdas bench ops
+	pytest -q -p no:cacheprovider -k "not sandbox_exec and not sandbox_go and not sandbox_ts and not build_and_import and not shadow"
