@@ -25,6 +25,7 @@ from uxie.review.reviewer import PullRequest, review
 from uxie.review.workspace import Workspace
 from uxie.store.lake import Lake
 from uxie.store.reviews import ReviewStore
+from uxie.verify.languages import verifiable
 from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
@@ -125,9 +126,10 @@ def _run(
         for f in fresh:
             telemetry.findings.add(1, {"severity": f.severity, "category": f.category})
         # verify-gated posting: confident findings go up now, the rest wait for a proof
+        # only hold what the sandbox can actually prove; other languages post as usual
         gate = cfg.post_confidence if enqueue else None
-        now_ = [f for f in fresh if gate is None or f.confidence >= gate]
-        held = [f for f in fresh if f not in now_]
+        held = [f for f in fresh if gate is not None and f.confidence < gate and verifiable(f.path)]
+        now_ = [f for f in fresh if f not in held]
         review_id = 0
         if now_ or force or not reviewed_before:
             notes = [f"{repeats} earlier finding(s) still apply."] if repeats else []
@@ -137,8 +139,9 @@ def _run(
                 )
             review_id = _post(gh, job, head, result.summary, now_, " ".join(notes))
         if enqueue:
-            if review_id and now_:
-                _enqueue_verifies(gh, job, pr, head, now_, review_id, enqueue)
+            checkable = [f for f in now_ if verifiable(f.path)]
+            if review_id and checkable:
+                _enqueue_verifies(gh, job, pr, head, checkable, review_id, enqueue)
             _enqueue_verifies(gh, job, pr, head, held, None, enqueue)
         out = result.to_dict() | {"model_id": cfg.model_id, "mode": cfg.mode}
         store.finish(

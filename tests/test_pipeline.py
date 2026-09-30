@@ -236,3 +236,38 @@ def test_review_body_starts_with_banner(tmp_path, cfg):
     assert "uxie review" not in body  # straight from the summary
     assert body.index("```\n\n") < body.index("s\n") < body.index("reviewed by uxie")
     assert max(len(line) for line in BANNER.splitlines()) <= 80  # no sideways scroll on GitHub
+
+
+def test_unverifiable_languages_are_posted_not_held(tmp_path, cfg):
+    from dataclasses import replace
+
+    ts_patch = "@@ -1,2 +1,3 @@\n const a = 1;\n+if (a <= 0) { run(); }\n const b = 2;"
+
+    class TsGH(FakeGH):
+        def list_pr_files(self, repo, n):
+            return [{"filename": "src/app.ts", "status": "modified", "patch": ts_patch}]
+
+    unsure_ts = {
+        "path": "src/app.ts",
+        "line": 2,
+        "severity": "high",
+        "category": "bug",
+        "title": "inverted check",
+        "explanation": "e",
+        "confidence": 0.6,
+    }
+    model = FakeModel([tool_turn("submit_review", {"summary": "s", "findings": [unsure_ts]})])
+    gh, queued = TsGH(), []
+    pipeline.run(
+        _job(),
+        gh,
+        model,
+        replace(cfg, post_confidence=0.9),
+        FakeStore(),
+        None,
+        tmp_path / "w",
+        queued.append,
+    )
+    assert [c["path"] for c in gh.reviews[0]["comments"]] == ["src/app.ts"]  # posted, not dropped
+    assert queued == []  # the sandbox can't prove TypeScript yet, so nothing is queued
+    assert "posted only if a test" not in gh.reviews[0]["body"]
