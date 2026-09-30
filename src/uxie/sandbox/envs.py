@@ -6,6 +6,7 @@ runs at install time. The PR's own project is never installed; tests import it f
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -14,7 +15,7 @@ import re
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
 BUILDER_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
@@ -71,6 +72,52 @@ def _poetry(deps: dict[str, object], optional: bool = False) -> list[str]:
     return out
 
 
+def _literal_strs(node: ast.AST | None, names: Mapping[str, ast.AST]) -> list[str]:
+    """String list from a literal, or a module-level name bound to one. Never executes code."""
+    if isinstance(node, ast.Name):
+        node = names.get(node.id)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.List | ast.Tuple):
+        return [
+            e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
+        ]
+    return []
+
+
+def _setup_py(path: Path) -> tuple[list[str], dict[str, list[str]], str]:
+    """(install_requires, extras_require, name) read statically from setup.py's AST."""
+    try:
+        tree = ast.parse(path.read_text(errors="replace"))
+    except SyntaxError:
+        return [], {}, ""
+    names = {
+        t.id: n.value
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        for t in n.targets
+        if isinstance(t, ast.Name)
+    }
+    for call in ast.walk(tree):
+        if not (
+            isinstance(call, ast.Call)
+            and getattr(call.func, "id", getattr(call.func, "attr", "")) == "setup"
+        ):
+            continue
+        kw = {k.arg: k.value for k in call.keywords if k.arg}
+        extras: dict[str, list[str]] = {}
+        ex = kw.get("extras_require")
+        if isinstance(ex, ast.Name):
+            ex = names.get(ex.id)
+        if isinstance(ex, ast.Dict):
+            for k, v in zip(ex.keys, ex.values, strict=False):
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    extras[k.value] = _literal_strs(v, names)
+        name = _literal_strs(kw.get("name"), names)
+        return _literal_strs(kw.get("install_requires"), names), extras, name[0] if name else ""
+    return [], {}, ""
+
+
 def _requirements_file(path: Path, root: Path, seen: set[Path]) -> list[str]:
     if path in seen or not path.is_file():
         return []
@@ -122,6 +169,13 @@ def requirements(root: Path) -> tuple[list[str], dict[str, list[str]]]:
             )
             if dev:
                 groups["poetry:dev"] = _poetry(dev)
+    setup_py = root / "setup.py"
+    if setup_py.is_file() and not core:  # legacy packaging; parsed, never run
+        reqs, setup_extras, name = _setup_py(setup_py)
+        core += reqs
+        own.add(_norm(name))
+        for g, deps in setup_extras.items():
+            groups[f"extra:{g}"] = deps
     # requirements files are core only when pyproject declares nothing (often they pin dev tools)
     declared = bool(core)
     for req in sorted(root.glob("requirements*.txt"), key=lambda p: p.name != "requirements.txt"):

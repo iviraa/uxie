@@ -144,3 +144,41 @@ def test_refuses_to_build_when_disk_is_low(tmp_path, monkeypatch):
     monkeypatch.setattr(sh, "disk_usage", lambda p: sh._ntuple_diskusage(100, 99, 1))
     with pytest.raises(RuntimeError, match="refusing env build"):
         envs.EnvBuilder(tmp_path / "envs").ensure(tmp_path)
+
+
+def test_setup_py_is_parsed_not_executed(tmp_path):
+    _write(
+        tmp_path,
+        "setup.py",
+        """
+        import os
+        os.system("touch PWNED")  # must never run
+        EXTRAS = {"http2": "h2==3.*", "cli": ["click"]}
+        REQS = ["certifi", "httpcore>=0.12,<0.13"]
+        setup(
+            name="httpx",
+            install_requires=REQS + ["sniffio"] if False else REQS,
+            extras_require=EXTRAS,
+        )
+    """,
+    )
+    _write(tmp_path, "setup2.py", "")
+    core, groups = requirements(tmp_path)
+    assert not (tmp_path / "PWNED").exists()
+    assert groups == {"extra:cli": ["click"], "extra:http2": ["h2==3.*"]}
+    # a non-literal expression is skipped rather than evaluated
+    assert core == []
+
+
+def test_setup_py_literal_and_name_refs(tmp_path):
+    _write(
+        tmp_path,
+        "setup.py",
+        """
+        from setuptools import setup
+        REQS = ["certifi", "rfc3986[idna2008]>=1.3,<2"]
+        setuptools.setup(name="pkg", install_requires=REQS)
+    """,
+    )
+    core, _ = requirements(tmp_path)
+    assert core == ["certifi", "rfc3986[idna2008]>=1.3,<2"]
