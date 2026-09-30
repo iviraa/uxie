@@ -1,6 +1,6 @@
 # uxie benchmark results
 
-Generated 2026-09-29 by `python -m bench.report`. Reviewer model: Claude Haiku 4.5 on Bedrock.
+Generated 2026-09-30 by `python -m bench.report`. Reviewer model: Claude Haiku 4.5 on Bedrock.
 
 ## Seeded bugs
 
@@ -30,3 +30,31 @@ Recall by bug type:
 | real-context | 25% (9/36) | 20% | - | - | $0.0474 | 176s / 183s | 9.6 | 0 |
 | real-context16 | 25% (9/36) | 24% | - | - | $0.0703 | 232s / 342s | 13.5 | 0 |
 | real-specialists | 67% (24/36) | 24% | - | - | $0.0266 | 39s / 48s | 0.0 | 0 |
+
+## Live pipeline on seeded bugs (sample)
+
+Specialist reviewers, then findings under 0.9 confidence are held and proven by a Sonnet 4.6 prover in the sandbox. gated = post held findings only if proven (live setting); gated-lenient = post unless refuted. 14 sampled cases.
+
+| variant | bug recall | on-target precision | comments / clean PR | clean PRs flagged | cost / PR | latency p50 / p90 | tool calls / PR | errors |
+|---|---|---|---|---|---|---|---|---|
+| haiku-specialists-sonnet-gate-subset | 100% (7/7) | 31% | 4.29 | 100% | $0.0304 | 40s / 46s | 0.0 | 0 |
+| haiku-specialists-sonnet-gate-verify-gated | 100% (7/7) | 31% | 1.86 | 86% | $0.0623 | 318s / 659s | 0.0 | 0 |
+| haiku-specialists-sonnet-gate-verify-gated-lenient | 100% (7/7) | 34% | 3.43 | 100% | $0.0623 | 318s / 659s | 0.0 | 0 |
+
+Recall by bug type:
+
+| variant | compare | drop-not | off-by-one |
+|---|---|---|---|
+| haiku-specialists-sonnet-gate-subset | 4/4 | 1/1 | 2/2 |
+| haiku-specialists-sonnet-gate-verify-gated | 4/4 | 1/1 | 2/2 |
+| haiku-specialists-sonnet-gate-verify-gated-lenient | 4/4 | 1/1 | 2/2 |
+
+## Live pipeline on real bugs (sample)
+
+Same pipeline on 12 sampled SZZ cases. Most losses are held findings the sandbox could not execute (old code on Python 3.12, OS-level code paths), not refutations.
+
+| variant | bug recall | on-target precision | comments / clean PR | clean PRs flagged | cost / PR | latency p50 / p90 | tool calls / PR | errors |
+|---|---|---|---|---|---|---|---|---|
+| real-specialists-sonnet-gate-subset | 67% (8/12) | 15% | - | - | $0.0325 | 40s / 46s | 0.0 | 0 |
+| real-specialists-sonnet-gate-verify-gated | 33% (4/12) | 22% | - | - | $0.1813 | 622s / 866s | 0.0 | 0 |
+| real-specialists-sonnet-gate-verify-gated-lenient | 58% (7/12) | 19% | - | - | $0.1813 | 622s / 866s | 0.0 | 0 |

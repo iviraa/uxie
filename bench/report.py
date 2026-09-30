@@ -27,6 +27,29 @@ SETS = [
         "(mined with SZZ). Recall = flagged one of those lines. SZZ is noisy: some 'bugs' "
         "are type-annotation or cosmetic fixes.",
     ),
+    (
+        "Live pipeline on seeded bugs (sample)",
+        Path("bench/cases.jsonl"),
+        [
+            "haiku-specialists-sonnet-gate-subset",
+            "haiku-specialists-sonnet-gate-verify-gated",
+            "haiku-specialists-sonnet-gate-verify-gated-lenient",
+        ],
+        "Specialist reviewers, then findings under 0.9 confidence are held and proven by a "
+        "Sonnet 4.6 prover in the sandbox. gated = post held findings only if proven (live "
+        "setting); gated-lenient = post unless refuted. 14 sampled cases.",
+    ),
+    (
+        "Live pipeline on real bugs (sample)",
+        Path("bench/cases_real.jsonl"),
+        [
+            "real-specialists-sonnet-gate-subset",
+            "real-specialists-sonnet-gate-verify-gated",
+            "real-specialists-sonnet-gate-verify-gated-lenient",
+        ],
+        "Same pipeline on 12 sampled SZZ cases. Most losses are held findings the sandbox "
+        "could not execute (old code on Python 3.12, OS-level code paths), not refutations.",
+    ),
 ]
 
 

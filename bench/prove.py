@@ -190,7 +190,10 @@ def derive(args: argparse.Namespace) -> None:
     gate = args.held_below
     proven_ok = {CONFIRMED, LIKELY}
     policies: dict[str, Callable[[dict[str, Any], str | None], bool]] = (
-        {"gated": lambda f, v: f["confidence"] >= gate or v in proven_ok}  # live bot's rule
+        {
+            "gated": lambda f, v: f["confidence"] >= gate or v in proven_ok,  # live bot's rule
+            "gated-lenient": lambda f, v: f["confidence"] >= gate or v != REFUTED,
+        }
         if gate is not None
         else {"strict": lambda f, v: v in proven_ok, "lenient": lambda f, v: v != REFUTED}
     )
