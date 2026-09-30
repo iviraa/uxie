@@ -7,11 +7,11 @@ runs at install time. The PR's own project is never installed; tests import it f
 from __future__ import annotations
 
 import ast
-import os
 import contextlib
 import fcntl
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
