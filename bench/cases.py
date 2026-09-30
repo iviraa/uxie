@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import shutil
 import subprocess
@@ -76,6 +77,13 @@ def changed_paths(repo: str, base: str, head: str) -> list[tuple[str, str]]:
 def snapshot(repo: str, sha: str) -> Path:
     """Extract the tree at sha once and reuse it (read-only)."""
     dest = CACHE / "snapshots" / Path(repo).name / sha
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with (dest.parent / f"{sha}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # a seeded case and its clean twin share a commit
+        return _extract(repo, sha, dest)
+
+
+def _extract(repo: str, sha: str, dest: Path) -> Path:
     if not dest.exists():
         tmp = dest.with_suffix(".tmp")
         shutil.rmtree(tmp, ignore_errors=True)
