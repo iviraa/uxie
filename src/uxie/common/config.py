@@ -48,6 +48,29 @@ def queue_url() -> str:
     return _require("REVIEW_QUEUE_URL")
 
 
+@dataclass(frozen=True)
+class DispatcherSettings:
+    queue_url: str
+    reviews_table: str
+    app_secret_arn: str
+    prover_model_id: str
+    jobs_root: str
+    sandbox_image: str
+    region: str | None
+
+
+def dispatcher_settings() -> DispatcherSettings:
+    return DispatcherSettings(
+        queue_url=_require("VERIFY_QUEUE_URL"),
+        reviews_table=_require("REVIEWS_TABLE"),
+        app_secret_arn=_require("APP_SECRET_ARN"),
+        prover_model_id=_require("PROVER_MODEL_ID"),
+        jobs_root=os.environ.get("JOBS_ROOT", "/jobs"),
+        sandbox_image=os.environ.get("SANDBOX_IMAGE", "uxie-sandbox:dev"),
+        region=os.environ.get("AWS_REGION"),
+    )
+
+
 def verify_queue_url() -> str | None:
     return os.environ.get("VERIFY_QUEUE_URL") or None  # unset: reviews aren't verified
 
