@@ -10,7 +10,7 @@ Generated 2026-09-29 by `python -m bench.report`. Reviewer model: Claude Haiku 4
 |---|---|---|---|---|---|---|---|---|
 | haiku-baseline | 85% (50/59) | 43% | 1.80 | 68% | $0.0073 | 13s / 21s | 0.0 | 0 |
 | haiku-context | 90% (53/59) | 60% | 1.42 | 75% | $0.0417 | 168s / 185s | 8.0 | 0 |
-| haiku-specialists | 100% (1/1) | 50% | 1.00 | 100% | $0.0177 | 19s / 19s | 0.0 | 0 |
+| haiku-specialists | 93% (55/59) | 27% | 4.27 | 92% | $0.0235 | 40s / 45s | 0.0 | 0 |
 
 Recall by bug type:
 
@@ -18,7 +18,7 @@ Recall by bug type:
 |---|---|---|---|---|---|
 | haiku-baseline | 9/9 | 26/29 | 8/9 | 1/2 | 6/10 |
 | haiku-context | 8/9 | 27/29 | 9/9 | 1/2 | 8/10 |
-| haiku-specialists | 0/0 | 0/0 | 1/1 | 0/0 | 0/0 |
+| haiku-specialists | 9/9 | 27/29 | 9/9 | 1/2 | 9/10 |
 
 ## Real bugs (SZZ)
 
@@ -29,3 +29,4 @@ Recall by bug type:
 | real-baseline | 44% (16/36) | 23% | - | - | $0.0085 | 18s / 28s | 0.0 | 0 |
 | real-context | 25% (9/36) | 20% | - | - | $0.0474 | 176s / 183s | 9.6 | 0 |
 | real-context16 | 25% (9/36) | 24% | - | - | $0.0703 | 232s / 342s | 13.5 | 0 |
+| real-specialists | 67% (24/36) | 24% | - | - | $0.0266 | 39s / 48s | 0.0 | 0 |
