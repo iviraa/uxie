@@ -50,7 +50,54 @@ SETS = [
         "Same pipeline on 12 sampled SZZ cases. Most losses are held findings the sandbox "
         "could not execute (old code on Python 3.12, OS-level code paths), not refutations.",
     ),
+    (
+        "Go: seeded bugs",
+        Path("bench/cases_go.jsonl"),
+        ["go-baseline", "go-specialists"],
+        "20 commits from samber/lo and go-chi/chi with one injected logic or behavioral bug "
+        "each, plus clean twins (40 PRs). Mutations made with tree-sitter.",
+    ),
+    (
+        "Go: real bugs (SZZ)",
+        Path("bench/cases_real_go.jsonl"),
+        ["real-go-baseline", "real-go-specialists"],
+        "24 bug-introducing commits in samber/lo and go-chi/chi.",
+    ),
+    (
+        "TypeScript: seeded bugs",
+        Path("bench/cases_ts.jsonl"),
+        ["ts-baseline", "ts-specialists"],
+        "20 commits from remeda and date-fns with one injected bug each, plus clean twins.",
+    ),
+    (
+        "TypeScript: real bugs (SZZ)",
+        Path("bench/cases_real_ts.jsonl"),
+        ["real-ts-baseline", "real-ts-specialists"],
+        "24 bug-introducing commits in remeda and date-fns.",
+    ),
+    (
+        "Python: behavioral bugs",
+        Path("bench/cases_behavior_py.jsonl"),
+        ["pybehav-spec3", "pybehav-spec4"],
+        "30 commits with one behavioral bug each (dropped state update, swapped statements, "
+        "removed None guard, swapped arguments), plus clean twins. spec3 = logic, edge-case, "
+        "and contract reviewers; spec4 adds the behavior reviewer.",
+    ),
 ]
+
+BEHAVIOR_OPS = {"drop-update", "swap-stmts", "swallow-error", "drop-guard", "swap-args"}
+
+
+def by_category(variant: str, cases: dict) -> dict[str, tuple[int, int]]:
+    """Recall grouped as logic vs behavioral mutations."""
+    out: dict[str, tuple[int, int]] = {}
+    for op, (got, tot) in by_op(variant, cases).items():
+        if op == "real":
+            continue
+        cat = "behavioral" if op in BEHAVIOR_OPS else "logic"
+        g, t = out.get(cat, (0, 0))
+        out[cat] = (g + got, t + tot)
+    return out
 
 
 def main() -> None:
@@ -66,6 +113,13 @@ def main() -> None:
         cases = {c.id: c for c in load(path)}
         rows = [score(v, cases).row() for v in present]
         out += [f"## {title}\n", blurb + "\n", table(HEADER, rows) + "\n"]
+        cats = sorted({c for v in present for c in by_category(v, cases)})
+        if len(cats) > 1:
+            rows = [
+                [v] + [f"{g}/{t}" for g, t in (by_category(v, cases).get(c, (0, 0)) for c in cats)]
+                for v in present
+            ]
+            out += ["Recall by category:\n", table(["variant", *cats], rows) + "\n"]
         ops = sorted({op for v in present for op in by_op(v, cases)})
         if len(ops) > 1:
             per = [
