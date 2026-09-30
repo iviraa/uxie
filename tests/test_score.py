@@ -65,3 +65,18 @@ def test_latest_prefers_success_over_later_error(tmp_path, monkeypatch):
     (tmp_path / "v.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
     got = {r["case_id"]: r for r in sc.latest("v")}
     assert got["a"] == ok and got["b"]["error"] == "x"
+
+
+def test_real_bug_case_uses_truth_lines():
+    c = Case(
+        "r1",
+        "/r",
+        "b",
+        "h",
+        "t",
+        "",
+        "real",
+        truth=[{"path": "a.py", "line": 10}, {"path": "b.py", "line": 50}],
+    )
+    assert sc.hits(c, [_f(51, "b.py")]) and not sc.hits(c, [_f(10, "b.py")])
+    assert c.targets == [("a.py", 10), ("b.py", 50)]

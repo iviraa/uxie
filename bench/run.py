@@ -45,6 +45,7 @@ def main() -> None:
     ap.add_argument("--min-confidence", type=float, default=0.5)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--shard", default="0/1", help="k/n: run every n-th case starting at k")
     ap.add_argument("--region", default="us-east-2")
     ap.add_argument("--rpm", type=float, default=9, help="stay under the account's Bedrock quota")
     args = ap.parse_args()
@@ -63,6 +64,8 @@ def main() -> None:
     out.parent.mkdir(exist_ok=True)
     done = {r["case_id"] for r in _rows(out) if not r.get("error")}
     cases = [c for c in load(args.cases) if c.id not in done]
+    k, n = (int(x) for x in args.shard.split("/"))
+    cases = [c for i, c in enumerate(cases) if i % n == k]
     if args.limit:
         cases = cases[: args.limit]
     meta = {"variant": args.variant, "mode": args.mode, "model": args.model}

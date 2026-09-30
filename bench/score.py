@@ -73,13 +73,11 @@ HEADER = [
 
 
 def hits(case: Case, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    m = case.mutation
-    if m is None:
-        return []
+    targets = case.targets
     return [
         f
         for f in findings
-        if f["path"] == m.path and abs(int(f["line"]) - m.line) <= LINE_TOLERANCE
+        if any(f["path"] == p and abs(int(f["line"]) - ln) <= LINE_TOLERANCE for p, ln in targets)
     ]
 
 
@@ -108,7 +106,7 @@ def score(variant: str, cases: dict[str, Case]) -> Score:
         s.cost += r["cost_usd"]
         s.latencies.append(r["latency_s"])
         s.tool_calls += len(r["tool_calls"])
-        if case.kind == "seeded":
+        if case.targets:  # seeded or real bug
             s.seeded += 1
             h = hits(case, found)
             s.caught += bool(h)
@@ -125,10 +123,11 @@ def by_op(variant: str, cases: dict[str, Case]) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
     for r in latest(variant):
         case = cases.get(r["case_id"])
-        if not case or not case.mutation or r.get("error"):
+        if not case or not case.targets or r.get("error"):
             continue
-        got, tot = out.get(case.mutation.op, (0, 0))
-        out[case.mutation.op] = (got + bool(hits(case, r["findings"])), tot + 1)
+        op = case.mutation.op if case.mutation else "real"
+        got, tot = out.get(op, (0, 0))
+        out[op] = (got + bool(hits(case, r["findings"])), tot + 1)
     return out
 
 

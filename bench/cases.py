@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from bench.mutate import Mutation
 from uxie.diff import filters
@@ -27,6 +28,14 @@ class Case:
     kind: str  # seeded | clean
     mutation: Mutation | None = None
     mutated_source: str | None = None
+    truth: list[dict[str, Any]] | None = None  # real bugs: [{"path", "line"}] a fix later changed
+
+    @property
+    def targets(self) -> list[tuple[str, int]]:
+        """Ground-truth (path, line) pairs; empty for clean cases."""
+        if self.mutation:
+            return [(self.mutation.path, self.mutation.line)]
+        return [(t["path"], int(t["line"])) for t in self.truth or []]
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
