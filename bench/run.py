@@ -37,7 +37,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cases", type=Path, default=Path("bench/cases.jsonl"))
     ap.add_argument("--variant", required=True)
-    ap.add_argument("--mode", choices=["baseline", "context"], required=True)
+    ap.add_argument("--mode", choices=["baseline", "context", "specialists"], required=True)
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--price-in", type=float, default=1.0)
     ap.add_argument("--price-out", type=float, default=5.0)

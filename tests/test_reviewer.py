@@ -103,3 +103,30 @@ def test_rate_limiter_spaces_calls(monkeypatch):
     for _ in range(3):
         lim.wait()
     assert slept == [0.0, 10.0, 20.0]
+
+
+class FocusModel:
+    """Answers by specialist focus, found in the system prompt; thread-safe."""
+
+    def __init__(self, by_focus):
+        self.by_focus, self.systems = by_focus, []
+
+    def converse(self, system, messages, tools, tool_choice=None, max_tokens=4096):
+        text = system[0]["text"]
+        self.systems.append(text)
+        focus = next(k for k in self.by_focus if k in text)
+        return tool_turn("submit_review", {"summary": focus, "findings": self.by_focus[focus]})
+
+
+def test_specialists_run_in_parallel_and_dedupe(tmp_path, cfg):
+    from dataclasses import replace
+
+    weak = FINDING | {"confidence": 0.6, "title": "weak"}
+    strong = FINDING | {"confidence": 0.95, "title": "strong"}
+    other = FINDING | {"line": 22, "title": "edge"}
+    model = FocusModel({"only on logic": [weak], "only on edge": [other, strong], "contracts:": []})
+    res = review(_pr(), _ws(tmp_path), model, replace(cfg, mode="specialists"))
+    assert len(model.systems) == 3
+    assert sorted(f.title for f in res.findings) == ["edge", "strong"]  # dupe kept the stronger
+    assert res.stats["raw_logic"] == 1 and res.stats["raw_edges"] == 2 and res.stats["dupe"] == 1
+    assert res.usage.calls == 3 and res.error is None

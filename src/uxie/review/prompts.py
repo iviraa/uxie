@@ -30,8 +30,19 @@ bug. Be economical: a few targeted lookups beat reading whole files."""
 FORCE_SUBMIT = "Tool budget exhausted. Call submit_review now with your findings."
 
 
-def system_prompt(mode: str) -> str:
-    return REVIEWER_SYSTEM + (CONTEXT_ADDENDUM if mode == "context" else "")
+SPECIALISTS = {
+    "logic": "Focus only on logic errors: wrong conditions, inverted checks, wrong operators, "
+    "off-by-one errors, wrong variables, and incorrect arithmetic or indexing.",
+    "edges": "Focus only on edge cases and error handling: None/empty/zero inputs, boundary "
+    "values, unhandled exceptions, missing validation, and failure paths that leak resources.",
+    "contracts": "Focus only on contracts: changed signatures or return values that break "
+    "callers, violated invariants, state mutated in the wrong order, and concurrency issues.",
+}
+
+
+def system_prompt(mode: str, focus: str | None = None) -> str:
+    base = REVIEWER_SYSTEM + (CONTEXT_ADDENDUM if mode == "context" else "")
+    return base + (f"\n\n{SPECIALISTS[focus]}" if focus else "")
 
 
 def user_prompt(title: str, body: str, rendered_diff: str) -> str:

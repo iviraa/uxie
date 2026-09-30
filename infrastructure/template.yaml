@@ -16,7 +16,7 @@ Parameters:
   ReviewMode:
     Type: String
     Default: context
-    AllowedValues: [baseline, context]
+    AllowedValues: [baseline, context, specialists]
   PriceInPerMTok:
     Type: String
     Default: "1.0"
