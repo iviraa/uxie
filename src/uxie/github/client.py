@@ -72,6 +72,20 @@ class GitHubClient:
     def list_reviews(self, repo: str, number: int) -> list[dict[str, Any]]:
         return self._paginate(f"/repos/{repo}/pulls/{number}/reviews?per_page=100")
 
+    def list_comments_for_review(
+        self, repo: str, number: int, review_id: int
+    ) -> list[dict[str, Any]]:
+        return self._paginate(
+            f"/repos/{repo}/pulls/{number}/reviews/{review_id}/comments?per_page=100"
+        )
+
+    def reply_to_comment(self, repo: str, number: int, comment_id: int, body: str) -> None:
+        self._request(
+            "POST",
+            f"/repos/{repo}/pulls/{number}/comments/{comment_id}/replies",
+            json={"body": body},
+        )
+
     def create_review(
         self, repo: str, number: int, commit_id: str, body: str, comments: list[dict[str, Any]]
     ) -> dict[str, Any]:
