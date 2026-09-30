@@ -251,8 +251,10 @@ def prove(
     assert proof.head is not None
     if proof.head.outcome == FAILED and base_snapshot is not None:
         job = VerifyJob("base", "", "", "", TEST_PATH, proof.test_code, {}, cfg.timeout_s)
-        proof.base = ex.run(
-            stage(base_snapshot, job, workdir / "base"), TEST_PATH, cfg.timeout_s, env
-        )
+        with telemetry.span("sandbox.run", **{"sandbox.side": "base"}) as sp:
+            proof.base = ex.run(
+                stage(base_snapshot, job, workdir / "base"), TEST_PATH, cfg.timeout_s, env
+            )
+            sp.set_attribute("sandbox.outcome", proof.base.outcome)
     proof.verdict = decide(proof.head, proof.base)
     return proof
