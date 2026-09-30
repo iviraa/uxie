@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from uxie.review.banner import BANNER
 from uxie.review.findings import Finding
 
 _SEV_ICON = {"high": "🔴", "medium": "🟠", "low": "🟡"}
@@ -42,7 +43,7 @@ def review_body(summary: str, findings: list[Finding], note: str = "") -> str:
         if findings
         else ("**uxie review:** no defects found")
     )
-    parts = [head, "", summary.strip()]
+    parts = [f"```\n{BANNER.rstrip()}\n```", "", head, "", summary.strip()]
     if note:
         parts += ["", note]
     return "\n".join([*parts, "", FOOTER, REVIEW_MARK])

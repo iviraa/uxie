@@ -224,3 +224,14 @@ def test_gate_ignored_when_verification_is_off(tmp_path, cfg):
         _job(), gh, model, replace(cfg, post_confidence=0.9), FakeStore(), None, tmp_path / "w"
     )  # no enqueue: nothing could ever prove it, so post it
     assert len(gh.reviews[0]["comments"]) == 1
+
+
+def test_review_body_starts_with_banner(tmp_path, cfg):
+    from uxie.review.banner import BANNER
+
+    gh = FakeGH()
+    pipeline.run(_job(), gh, _model(), cfg, FakeStore(), None, tmp_path / "w")
+    body = gh.reviews[0]["body"]
+    assert body.startswith("```\n") and BANNER.splitlines()[2] in body
+    assert "**uxie review:**" in body and "reviewed by uxie" in body
+    assert max(len(line) for line in BANNER.splitlines()) <= 80  # no sideways scroll on GitHub
