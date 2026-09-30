@@ -1,4 +1,4 @@
-.PHONY: install lint test build deploy dispatcher clean
+.PHONY: install lint test build deploy dispatcher dashboard clean
 
 export PYTHONPATH := src:.
 
@@ -29,3 +29,7 @@ clean:
 
 dispatcher:  ## rebuild + roll out the verify dispatcher on the local k3s cluster
 	./deploy/dispatcher.sh
+
+dashboard:  ## rebuild the Grafana dashboard from code and upload it
+	python deploy/grafana/build_dashboard.py
+	python deploy/grafana/push.py $${GRAFANA_URL:?set GRAFANA_URL=https://<stack>.grafana.net}

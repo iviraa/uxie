@@ -1,196 +1,202 @@
 {
-  "title": "uxie",
   "uid": "uxie-overview",
-  "schemaVersion": 39,
-  "version": 3,
-  "time": {
-    "from": "now-7d",
-    "to": "now"
-  },
-  "refresh": "1m",
+  "title": "uxie",
   "tags": [
     "uxie"
   ],
-  "templating": {
-    "list": [
-      {
-        "name": "prom",
-        "label": "Metrics",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {
-          "selected": true,
-          "text": "grafanacloud-prom",
-          "value": "grafanacloud-prom"
-        },
-        "hide": 0
-      },
-      {
-        "name": "tempo",
-        "label": "Traces",
-        "type": "datasource",
-        "query": "tempo",
-        "current": {
-          "selected": true,
-          "text": "grafanacloud-traces",
-          "value": "grafanacloud-traces"
-        },
-        "hide": 0
-      }
-    ]
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
   },
+  "refresh": "1m",
   "panels": [
     {
       "id": 1,
-      "title": "Reviews (24h)",
+      "title": "Reviews",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum (max_over_time(uxie_reviews_total{status=\"done\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 6,
         "h": 4
       },
-      "targets": [
-        {
-          "expr": "sum(increase(uxie_reviews_total{status=\"done\"}[24h]))",
-          "legendFormat": "",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 2,
-      "title": "Findings posted (24h)",
+      "title": "Findings posted",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum (max_over_time(uxie_findings_total[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 6,
         "y": 0,
         "w": 6,
         "h": 4
       },
-      "targets": [
-        {
-          "expr": "sum(increase(uxie_findings_total[24h]))",
-          "legendFormat": "",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 3,
-      "title": "Confirmed by test (24h)",
+      "title": "Confirmed by a test",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum (max_over_time(uxie_verdicts_total{verdict=~\"confirmed|likely\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 12,
         "y": 0,
         "w": 6,
         "h": 4
       },
-      "targets": [
-        {
-          "expr": "sum(increase(uxie_verdicts_total{verdict=~\"confirmed|likely\"}[24h]))",
-          "legendFormat": "",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 4,
-      "title": "LLM cost (24h)",
+      "title": "LLM cost",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum (max_over_time(uxie_llm_cost_USD_total[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 18,
         "y": 0,
         "w": 6,
         "h": 4
       },
-      "targets": [
-        {
-          "expr": "sum(increase({__name__=~\"uxie_llm_cost.*_total\"}[24h]))",
-          "legendFormat": "",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "currencyUSD",
+          "decimals": 3
         },
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 5,
-      "title": "Reviews by outcome",
+      "title": "Reviews per hour (rolling)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (max_over_time(uxie_reviews_total[1h]))",
+          "legendFormat": "{{status}}",
+          "instant": false,
+          "range": true
+        }
+      ],
       "gridPos": {
         "x": 0,
         "y": 4,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "sum by (status) (increase(uxie_reviews_total[1h]))",
-          "legendFormat": "{{status}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -203,30 +209,38 @@
       "type": "piechart",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum by (verdict) (max_over_time(uxie_verdicts_total[$__range]))",
+          "legendFormat": "{{verdict}}",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 12,
         "y": 4,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "sum by (verdict) (increase(uxie_verdicts_total[$__range]))",
-          "legendFormat": "{{verdict}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 7,
@@ -234,34 +248,38 @@
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (max_over_time(uxie_review_duration_seconds_bucket[1h])))",
+          "legendFormat": "p50",
+          "instant": false,
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (max_over_time(uxie_review_duration_seconds_bucket[1h])))",
+          "legendFormat": "p95",
+          "instant": false,
+          "range": true
+        }
+      ],
       "gridPos": {
         "x": 0,
         "y": 12,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(uxie_review_duration_seconds_bucket[1h])))",
-          "legendFormat": "p50",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(uxie_review_duration_seconds_bucket[1h])))",
-          "legendFormat": "p95",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "B"
-        }
-      ],
       "fieldConfig": {
         "defaults": {
           "unit": "s"
@@ -272,29 +290,31 @@
     },
     {
       "id": 8,
-      "title": "Proof latency by verdict (p95)",
+      "title": "Proof latency p95 by verdict",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, verdict) (max_over_time(uxie_proof_duration_seconds_bucket[1h])))",
+          "legendFormat": "{{verdict}}",
+          "instant": false,
+          "range": true
+        }
+      ],
       "gridPos": {
         "x": 12,
         "y": 12,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, verdict) (rate(uxie_proof_duration_seconds_bucket[1h])))",
-          "legendFormat": "{{verdict}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {
           "unit": "s"
@@ -306,33 +326,41 @@
     {
       "id": 9,
       "title": "Tokens by model",
-      "type": "timeseries",
+      "type": "barchart",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum by (model, kind) (max_over_time(uxie_llm_tokens_total[$__range]))",
+          "legendFormat": "{{model}} {{kind}}",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 0,
         "y": 20,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "sum by (model, kind) (increase(uxie_llm_tokens_total[1h]))",
-          "legendFormat": "{{model}} {{kind}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 10,
@@ -340,30 +368,38 @@
       "type": "barchart",
       "datasource": {
         "type": "prometheus",
-        "uid": "${prom}"
+        "uid": "grafanacloud-prom"
       },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "refId": "A",
+          "expr": "sum by (severity) (max_over_time(uxie_findings_total[$__range]))",
+          "legendFormat": "{{severity}}",
+          "instant": true,
+          "range": false
+        }
+      ],
       "gridPos": {
         "x": 12,
         "y": 20,
         "w": 12,
         "h": 8
       },
-      "targets": [
-        {
-          "expr": "sum by (severity) (increase(uxie_findings_total[$__range]))",
-          "legendFormat": "{{severity}}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${prom}"
-          },
-          "refId": "A"
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
       "id": 11,
@@ -371,7 +407,7 @@
       "type": "table",
       "datasource": {
         "type": "tempo",
-        "uid": "${tempo}"
+        "uid": "grafanacloud-traces"
       },
       "gridPos": {
         "x": 0,
@@ -381,14 +417,14 @@
       },
       "targets": [
         {
-          "queryType": "traceqlSearch",
-          "query": "{ resource.service.namespace = \"uxie\" }",
-          "limit": 20,
           "datasource": {
             "type": "tempo",
-            "uid": "${tempo}"
+            "uid": "grafanacloud-traces"
           },
-          "refId": "A"
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.namespace = \"uxie\" }",
+          "limit": 20
         }
       ],
       "fieldConfig": {
@@ -397,5 +433,8 @@
       },
       "options": {}
     }
-  ]
+  ],
+  "templating": {
+    "list": []
+  }
 }
