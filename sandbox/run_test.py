@@ -77,7 +77,8 @@ def main() -> None:
     if env.get("UXIE_TARGET_FILE"):  # trace which lines of the flagged file actually run
         cmd[3:3] = ["-p", "uxie_reach"]
         here = os.path.dirname(os.path.abspath(__file__))
-        env["PYTHONPATH"] = os.pathsep.join(p for p in (here, env.get("PYTHONPATH")) if p)
+        if here not in env.get("PYTHONPATH", "").split(os.pathsep):
+            env["PYTHONPATH"] = os.pathsep.join(p for p in (here, env.get("PYTHONPATH")) if p)
     t0 = time.monotonic()
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)

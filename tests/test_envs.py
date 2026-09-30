@@ -212,3 +212,27 @@ def test_poetry_python_constraint_becomes_marker(tmp_path):
         'typing-extensions>=3.7.4, <5.0; python_version >= "3.6" and python_version < "3.9"' in core
     )
     assert "colorama>=0.4; sys_platform == 'win32'" in core
+
+
+@pytest.mark.skipif(not _docker_ok(), reason="needs docker")
+def test_env_packages_never_shadow_the_stdlib():
+    from uxie.sandbox.executor import DockerExecutor
+
+    work = Path.home() / ".uxie" / "jobs" / f"shadow-{uuid.uuid4().hex[:8]}"
+    env, repo = work / "env", work / "repo"
+    (env / "site").mkdir(parents=True)
+    repo.mkdir()
+    # a broken backport with a stdlib name, like dataclasses 0.8 on modern Python
+    (env / "site" / "dataclasses.py").write_text("raise ImportError('backport shadowed stdlib')\n")
+    (env / "site" / "extra_pkg.py").write_text("VALUE = 42\n")
+    (repo / "test_it.py").write_text(
+        "import dataclasses, extra_pkg\n"
+        "def test_t():\n"
+        "    assert dataclasses.__file__.startswith('/usr/local/lib/python3.12')\n"
+        "    assert extra_pkg.VALUE == 42\n"
+    )
+    try:
+        out = DockerExecutor().run(repo, "test_it.py", 30, env)
+        assert out.outcome == "passed", out.output_tail
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

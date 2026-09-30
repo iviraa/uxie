@@ -89,3 +89,10 @@ def test_busy_job_is_left_in_the_queue():
 
     serve(sqs, "q", busy, stop)
     assert sqs.deleted == []  # comes back after visibility expires, in case that pod dies
+
+
+def test_lease_expires_before_the_message_reappears():
+    from uxie.store.reviews import VERIFY_LEASE_SECONDS
+    from uxie.verify.main import HEARTBEAT_S, VISIBILITY_S
+
+    assert HEARTBEAT_S < VERIFY_LEASE_SECONDS < VISIBILITY_S

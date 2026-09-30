@@ -54,7 +54,7 @@ class DockerExecutor:
         env: Path | None = None,
         target_file: str | None = None,
     ) -> RunOutcome:
-        deps = ["-v", f"{env.resolve()}:/env:ro", "-e", "PYTHONPATH=/env/site"] if env else []
+        deps = ["-v", f"{env.resolve()}:/env:ro", "-e", "UXIE_DEPS=/env/site"] if env else []
         if target_file:
             deps += ["-e", f"UXIE_TARGET_FILE={target_file}"]
         cmd = [

@@ -10,7 +10,8 @@ import boto3
 from botocore.exceptions import ClientError
 
 LEASE_SECONDS = 900  # review worker: matches the Lambda timeout
-VERIFY_LEASE_SECONDS = 120  # dispatcher: short, renewed by a heartbeat while a proof runs
+VERIFY_LEASE_SECONDS = 100  # dispatcher: renewed by heartbeats; shorter than the 120s SQS
+# visibility so a redelivered job always finds a dead worker's lease already expired
 
 
 class Busy(Exception):

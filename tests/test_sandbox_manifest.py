@@ -26,7 +26,7 @@ def test_env_mount_is_read_only():
     (c,) = m["spec"]["template"]["spec"]["containers"]
     env = next(v for v in c["volumeMounts"] if v["mountPath"] == "/env")
     assert env == {"name": "src", "mountPath": "/env", "subPath": "envs/abc", "readOnly": True}
-    assert {"name": "PYTHONPATH", "value": "/env/site"} in c["env"]
+    assert {"name": "UXIE_DEPS", "value": "/env/site"} in c["env"]
 
 
 def test_build_job_has_no_privileges_or_token():

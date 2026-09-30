@@ -35,7 +35,7 @@ def job_manifest(
         {"name": "tmp", "mountPath": "/tmp"},
     ]
     if env_sub_path:  # dependency env from the same volume, read-only
-        env_vars.append({"name": "PYTHONPATH", "value": "/env/site"})
+        env_vars.append({"name": "UXIE_DEPS", "value": "/env/site"})  # see sitecustomize.py
         mounts.append(
             {"name": "src", "mountPath": "/env", "subPath": env_sub_path, "readOnly": True}
         )
