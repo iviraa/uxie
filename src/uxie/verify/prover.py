@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from uxie.review import tools
 from uxie.review.agent import Conversation
@@ -91,6 +91,34 @@ SUBMIT_TEST: dict[str, Any] = {
 }
 
 
+class TestWriter(Protocol):
+    """Produces a test file. First call gets the brief; later calls get retry feedback."""
+
+    usage: Usage
+
+    def write(self, message: str) -> dict[str, Any] | None: ...
+
+
+class ConversationWriter:
+    """Bedrock-backed writer: our own tool loop over the workspace."""
+
+    def __init__(self, model: ChatModel, ws: Workspace, max_turns: int) -> None:
+        self._model, self._ws, self._max_turns = model, ws, max_turns
+        self._conv: Conversation | None = None
+        self.usage = Usage()
+
+    def write(self, message: str) -> dict[str, Any] | None:
+        if self._conv is None:
+            specs = [*tools.CONTEXT_TOOLS, SUBMIT_TEST]
+            self._conv = Conversation(
+                self._model, SYSTEM, message, specs, "submit_test", self._ws, FORCE
+            )
+            self.usage = self._conv.usage
+        else:
+            self._conv.reply(message)  # feedback is the answer to the last submit_test call
+        return self._conv.run(self._max_turns)
+
+
 @dataclass(frozen=True)
 class ProverSettings:
     max_attempts: int = 3  # retries only when the test can't run; a passing test is final
@@ -157,21 +185,15 @@ def prove(
     workdir: Path,
     cfg: ProverSettings | None = None,
     env: Path | None = None,
+    writer: TestWriter | None = None,
 ) -> Proof:
     cfg = cfg or ProverSettings()
-    conv = Conversation(
-        model,
-        SYSTEM,
-        _brief(finding, pr),
-        [*tools.CONTEXT_TOOLS, SUBMIT_TEST],
-        "submit_test",
-        head_ws,
-        FORCE,
-    )
-    proof = Proof(finding, INCONCLUSIVE, usage=conv.usage)
+    writer = writer or ConversationWriter(model, head_ws, cfg.max_tool_turns)
+    proof = Proof(finding, INCONCLUSIVE, usage=writer.usage)
+    message = _brief(finding, pr)
 
     for attempt in range(1, cfg.max_attempts + 1):
-        sub = conv.run(cfg.max_tool_turns)
+        sub = writer.write(message)
         proof.attempts = attempt
         if sub is None:
             proof.note = "prover never submitted a test"
@@ -212,7 +234,7 @@ def prove(
             proof.verdict = INCONCLUSIVE
             return proof
         tail = proof.head.output_tail[-1500:] if proof.head else ""
-        conv.reply(RETRY.format(failure=problem, tail=tail))
+        message = RETRY.format(failure=problem, tail=tail)
 
     assert proof.head is not None
     if proof.head.outcome == FAILED and base_snapshot is not None:

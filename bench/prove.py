@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,9 +29,10 @@ from uxie.review.workspace import Workspace
 from uxie.sandbox.envs import EnvBuilder
 from uxie.sandbox.executor import DockerExecutor, Executor
 from uxie.sandbox.spec import CONFIRMED, LIKELY, REFUTED
-from uxie.verify.prover import ProverSettings, prove
+from uxie.verify.prover import ProverSettings, TestWriter, prove
 
 JOBS = Path.home() / ".uxie" / "jobs"
+WRITER_FACTORY: Callable[[Path], TestWriter] | None = None  # set by local experiment scripts
 POLICIES = {
     "strict": {CONFIRMED, LIKELY},  # only post what a test demonstrated
     "lenient": None,  # post everything except refuted
@@ -48,7 +50,11 @@ def _commit_date(case: Case) -> str:
 
 
 def prove_case(
-    case: Case, review: dict[str, Any], model: BedrockModel, ex: Executor, envs: EnvBuilder
+    case: Case,
+    review: dict[str, Any],
+    model: BedrockModel,
+    ex: Executor,
+    envs: EnvBuilder,
 ) -> dict[str, Any]:
     t0 = time.monotonic()
     pr, head_root = materialize(case)
@@ -58,6 +64,11 @@ def prove_case(
     for raw in review["findings"]:
         f = Finding(**raw)
         work = JOBS / f"bench-{uuid.uuid4().hex[:8]}"
+        writer = None
+        if WRITER_FACTORY is not None:  # alternative test writer gets a private repo copy
+            view = work / "view"
+            shutil.copytree(head_root, view, symlinks=True)
+            writer = WRITER_FACTORY(view)
         try:
             p = prove(
                 f,
@@ -70,10 +81,15 @@ def prove_case(
                 work,
                 ProverSettings(),
                 env,
+                writer,
             )
         finally:
             shutil.rmtree(work, ignore_errors=True)
-        proofs.append({**p.to_dict(), "cost_usd": p.usage.cost_usd(1.0, 5.0)})
+        if writer is not None:
+            cost, turns = getattr(writer, "cost_usd", 0.0), getattr(writer, "turns", 0)
+        else:
+            cost, turns = p.usage.cost_usd(1.0, 5.0), p.usage.calls
+        proofs.append({**p.to_dict(), "cost_usd": cost, "turns": turns})
     if case.mutation:  # mutated copies are per-case; don't let them pile up on disk
         shutil.rmtree(head_root, ignore_errors=True)
     return {
@@ -84,9 +100,13 @@ def prove_case(
     }
 
 
+def _stem(args: argparse.Namespace) -> str:
+    return f"{args.source}-{args.tag}" if args.tag else args.source
+
+
 def run(args: argparse.Namespace) -> None:
     k, n = (int(x) for x in args.shard.split("/"))
-    out = RESULTS / f"{args.source}-proofs.{k}.jsonl"
+    out = RESULTS / f"{_stem(args)}-proofs.{k}.jsonl"
     done = (
         {json.loads(ln)["case_id"] for ln in out.read_text().splitlines()}
         if out.exists()
@@ -144,7 +164,7 @@ def run(args: argparse.Namespace) -> None:
 
 def derive(args: argparse.Namespace) -> None:
     proofs: dict[str, dict[str, Any]] = {}
-    for path in sorted(RESULTS.glob(f"{args.source}-proofs.*.jsonl")):
+    for path in sorted(RESULTS.glob(f"{_stem(args)}-proofs.*.jsonl")):
         for ln in path.read_text().splitlines():
             row = json.loads(ln)
             if not row.get("error") or row["case_id"] not in proofs:
@@ -155,7 +175,7 @@ def derive(args: argparse.Namespace) -> None:
         fh.writelines(json.dumps(r) + "\n" for r in base_rows)
     print(f"{len(base_rows)} proven cases")
     for name, keep in POLICIES.items():
-        out = RESULTS / f"{args.source}-verify-{name}.jsonl"
+        out = RESULTS / f"{_stem(args)}-verify-{name}.jsonl"
         with out.open("w") as fh:
             for r in base_rows:
                 p = proofs.get(r["case_id"], {})
@@ -196,8 +216,10 @@ def main() -> None:
     r.add_argument("--workers", type=int, default=3)
     r.add_argument("--executor", choices=["k8s", "docker"], default="docker")
     r.add_argument("--max-findings", type=int, default=0)
+    r.add_argument("--tag", default="")
     d = sub.add_parser("derive")
     d.add_argument("--source", default="haiku-context")
+    d.add_argument("--tag", default="")
     args = ap.parse_args()
     run(args) if args.cmd == "run" else derive(args)
 
