@@ -16,7 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from bench.cases import Case, changed_paths, git, show
-from bench.seed import _is_test
+from bench.seed import SOURCES, is_source
 from uxie.diff.patch import make_patch, parse_patch
 
 FIX_RE = re.compile(r"\b(fix(es|ed)?|bug|regression|crash(es)?|incorrect|wrong|broken)\b", re.I)
@@ -62,7 +62,7 @@ def _size(repo: str, sha: str) -> int:
     return total
 
 
-def mine(repo: str, per_repo: int, max_scan: int) -> list[Case]:
+def mine(repo: str, per_repo: int, max_scan: int, lang: str = "python") -> list[Case]:
     truth: dict[str, set[tuple[str, int, str]]] = defaultdict(set)
     log = git(repo, "log", "--no-merges", "--format=%H%x00%s", f"-n{max_scan}")
     for row in log.splitlines():
@@ -74,9 +74,7 @@ def mine(repo: str, per_repo: int, max_scan: int) -> list[Case]:
         except subprocess.CalledProcessError:
             continue
         paths = [
-            p
-            for p, s in changed_paths(repo, parent, fix)
-            if s == "modified" and p.endswith(".py") and not _is_test(p)
+            p for p, s in changed_paths(repo, parent, fix) if s == "modified" and is_source(p, lang)
         ]
         removed = {p: removed_lines(repo, parent, fix, p) for p in paths}
         if not paths or not 0 < sum(map(len, removed.values())) <= MAX_FIX_REMOVED:
@@ -85,7 +83,7 @@ def mine(repo: str, per_repo: int, max_scan: int) -> list[Case]:
             text = show(repo, parent, path).splitlines()
             for n in lines:
                 src = text[n - 1].strip() if n <= len(text) else ""
-                if not src or src.startswith("#"):
+                if not src or src.startswith(("#", "//", "/*", "*")):  # comments carry no bug
                     continue  # blank/comment lines carry no bug
                 hit = blame(repo, parent, path, n)
                 if hit and not hit[0].startswith("^"):  # "^" marks a boundary/root commit
@@ -133,10 +131,11 @@ def main() -> None:
     ap.add_argument("--per-repo", type=int, default=15)
     ap.add_argument("--max-scan", type=int, default=3000)
     ap.add_argument("--out", type=Path, default=Path("bench/cases_real.jsonl"))
+    ap.add_argument("--lang", choices=sorted(SOURCES), default="python")
     args = ap.parse_args()
     cases: list[Case] = []
     for repo in args.repo:
-        got = mine(repo, args.per_repo, args.max_scan)
+        got = mine(repo, args.per_repo, args.max_scan, args.lang)
         print(
             f"{Path(repo).name}: {len(got)} bug-introducing commits, "
             f"{sum(len(c.truth or []) for c in got)} truth lines"
