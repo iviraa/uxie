@@ -21,6 +21,7 @@ class ReviewSettings:
     price_in_per_mtok: float
     price_out_per_mtok: float
     region: str | None = None
+    post_confidence: float | None = None  # below this, findings wait for a sandbox proof
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,9 @@ def review_settings() -> ReviewSettings:
         price_in_per_mtok=float(os.environ.get("PRICE_IN_PER_MTOK", "1.0")),
         price_out_per_mtok=float(os.environ.get("PRICE_OUT_PER_MTOK", "5.0")),
         region=os.environ.get("AWS_REGION"),
+        post_confidence=float(os.environ["POST_CONFIDENCE"])
+        if os.environ.get("POST_CONFIDENCE")
+        else None,
     )
 
 

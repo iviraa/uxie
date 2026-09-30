@@ -31,6 +31,10 @@ Parameters:
     Type: String
     Default: ""
     Description: 'Optional Secrets Manager secret {"endpoint", "headers"} for OTLP export (Grafana Cloud).'
+  PostConfidence:
+    Type: String
+    Default: "0.9"
+    Description: With verification on, findings below this confidence post only if a test proves them.
   VerifyFindings:
     Type: String
     Default: "false"
@@ -176,6 +180,7 @@ Resources:
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           REVIEW_MODE: !Ref ReviewMode
           VERIFY_QUEUE_URL: !If [VerifyOn, !Ref VerifyQueue, ""]
+          POST_CONFIDENCE: !Ref PostConfidence
           OTEL_SECRET_ARN: !Ref OtelSecretArn
           PRICE_IN_PER_MTOK: !Ref PriceInPerMTok
           PRICE_OUT_PER_MTOK: !Ref PriceOutPerMTok

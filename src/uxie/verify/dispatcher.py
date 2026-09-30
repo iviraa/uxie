@@ -14,11 +14,13 @@ from uxie.common.logger import get_logger, log
 from uxie.diff import filters
 from uxie.github.client import GitHubClient
 from uxie.pipeline import files_from_api
+from uxie.review import render as review_render
 from uxie.review.findings import Finding
 from uxie.review.model import ChatModel
 from uxie.review.reviewer import PullRequest
 from uxie.review.workspace import Workspace
 from uxie.sandbox.executor import Executor
+from uxie.sandbox.spec import CONFIRMED, LIKELY
 from uxie.verify.prover import ProverSettings, prove
 from uxie.verify.render import verdict_reply
 from uxie.verify.request import VerifyRequest
@@ -123,7 +125,14 @@ def _handle(
             env,
         )
         reply = verdict_reply(proof)
-        if reply and req.comment_id:
+        proven = proof.verdict in (CONFIRMED, LIKELY)
+        if req.post_if_proven:
+            if proven and reply:  # a held finding earns its place on the PR
+                f = proof.finding
+                body = f"{review_render.comment_body(f)}\n\n{reply}"
+                comment = {"path": f.path, "line": f.line, "side": "RIGHT", "body": body}
+                gh.create_review(req.repo, req.pr_number, req.head_sha, "", [comment])
+        elif reply and req.comment_id:
             gh.reply_to_comment(req.repo, req.pr_number, req.comment_id, reply)
         store.finish_verify(
             *key,
@@ -132,7 +141,8 @@ def _handle(
             attempts=proof.attempts,
             test_code=proof.test_code,
             note=proof.note,
-            replied=bool(reply and req.comment_id),
+            held=req.post_if_proven,
+            published=bool(reply and (req.comment_id or (req.post_if_proven and proven))),
         )
         log(
             logger,

@@ -138,3 +138,34 @@ def test_snapshots_are_cached_and_pruned(tmp_path):
 def test_request_roundtrip():
     r = _req()
     assert VerifyRequest.from_json(r.to_json()) == r and r.fingerprint == "fp1"
+
+
+class PostingGH(FakeGH):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.reviews = []
+
+    def create_review(self, repo, n, sha, body, comments):
+        self.reviews.append((sha, comments))
+        return {"id": 1}
+
+
+def test_held_finding_is_published_only_when_proven(tmp_path):
+    gh, store = PostingGH(), FakeStore()
+    assert (
+        _handle(tmp_path, gh, store, FakeExec(), _req(comment_id=None, post_if_proven=True))
+        == "confirmed"
+    )
+    ((sha, (c,)),) = gh.reviews
+    assert sha == "h1" and c["line"] == 4 and "✅" in c["body"] and "<!-- uxie:fp1 -->" in c["body"]
+    assert gh.replies == [] and store.finished[-1][1]["published"] is True
+
+    gh2 = PostingGH()
+    _handle(
+        tmp_path,
+        gh2,
+        FakeStore(),
+        FakeExec(head="passed"),
+        _req(comment_id=None, post_if_proven=True),
+    )
+    assert gh2.reviews == [] and gh2.replies == []  # refuted held finding never appears

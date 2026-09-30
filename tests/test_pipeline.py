@@ -187,3 +187,40 @@ def test_nothing_queued_when_rereview_is_quiet(tmp_path, cfg):
     _run(gh, cfg, tmp_path)
     pipeline.run(_job(), gh, _model(), cfg, FakeStore(), None, tmp_path / "w", queued.append)
     assert queued == []
+
+
+def test_gate_posts_confident_now_and_holds_the_rest(tmp_path, cfg):
+    from dataclasses import replace
+
+    sure = FINDING | {"confidence": 0.95}
+    unsure = FINDING | {"line": 22, "confidence": 0.6, "title": "maybe"}
+    model = FakeModel([tool_turn("submit_review", {"summary": "s", "findings": [sure, unsure]})])
+    gh, queued = FakeGH(), []
+    pipeline.run(
+        _job(),
+        gh,
+        model,
+        replace(cfg, post_confidence=0.9),
+        FakeStore(),
+        None,
+        tmp_path / "w",
+        queued.append,
+    )
+    (rev,) = gh.reviews
+    assert [c["line"] for c in rev["comments"]] == [4]
+    assert "1 more finding(s) will be posted only if a test reproduces them" in rev["body"]
+    by_line = {q.finding["line"]: q for q in queued}
+    assert by_line[4].comment_id == 1000 and not by_line[4].post_if_proven
+    assert by_line[22].comment_id is None and by_line[22].post_if_proven
+
+
+def test_gate_ignored_when_verification_is_off(tmp_path, cfg):
+    from dataclasses import replace
+
+    unsure = FINDING | {"confidence": 0.6}
+    model = FakeModel([tool_turn("submit_review", {"summary": "s", "findings": [unsure]})])
+    gh = FakeGH()
+    pipeline.run(
+        _job(), gh, model, replace(cfg, post_confidence=0.9), FakeStore(), None, tmp_path / "w"
+    )  # no enqueue: nothing could ever prove it, so post it
+    assert len(gh.reviews[0]["comments"]) == 1

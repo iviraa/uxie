@@ -18,6 +18,7 @@ class VerifyRequest:
     body: str
     finding: dict[str, Any] = field(default_factory=dict)
     comment_id: int | None = None
+    post_if_proven: bool = False  # held finding: publish only if the sandbox proves it
 
     @property
     def fingerprint(self) -> str:

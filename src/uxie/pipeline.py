@@ -124,12 +124,22 @@ def _run(
         telemetry.cost.add(result.cost_usd, {"component": "review", "model": cfg.model_id})
         for f in fresh:
             telemetry.findings.add(1, {"severity": f.severity, "category": f.category})
+        # verify-gated posting: confident findings go up now, the rest wait for a proof
+        gate = cfg.post_confidence if enqueue else None
+        now_ = [f for f in fresh if gate is None or f.confidence >= gate]
+        held = [f for f in fresh if f not in now_]
         review_id = 0
-        if fresh or force or not reviewed_before:
-            note = f"{repeats} earlier finding(s) still apply." if repeats else ""
-            review_id = _post(gh, job, head, result.summary, fresh, note)
-            if enqueue and review_id and fresh:
-                _enqueue_verifies(gh, job, pr, head, fresh, review_id, enqueue)
+        if now_ or force or not reviewed_before:
+            notes = [f"{repeats} earlier finding(s) still apply."] if repeats else []
+            if held:
+                notes.append(
+                    f"{len(held)} more finding(s) will be posted only if a test reproduces them."
+                )
+            review_id = _post(gh, job, head, result.summary, now_, " ".join(notes))
+        if enqueue:
+            if review_id and now_:
+                _enqueue_verifies(gh, job, pr, head, now_, review_id, enqueue)
+            _enqueue_verifies(gh, job, pr, head, held, None, enqueue)
         out = result.to_dict() | {"model_id": cfg.model_id, "mode": cfg.mode}
         store.finish(
             job.repo,
@@ -170,12 +180,18 @@ def _enqueue_verifies(
     pr: dict[str, Any],
     head: str,
     findings: list[Finding],
-    review_id: int,
+    review_id: int | None,
     enqueue: Callable[[VerifyRequest], None],
 ) -> None:
-    """One verify job per posted finding, pointing at its inline comment for the reply."""
-    posted = gh.list_comments_for_review(job.repo, job.pr_number, review_id)
-    by_fp = {fp: c["id"] for c in posted for fp in render.fingerprints_in([c.get("body") or ""])}
+    """One verify job per finding: posted ones reply in-thread, held ones post if proven."""
+    if not findings:
+        return
+    by_fp: dict[str, int] = {}
+    if review_id:
+        posted = gh.list_comments_for_review(job.repo, job.pr_number, review_id)
+        by_fp = {
+            fp: c["id"] for c in posted for fp in render.fingerprints_in([c.get("body") or ""])
+        }
     for f in findings:
         enqueue(
             VerifyRequest(
@@ -188,6 +204,7 @@ def _enqueue_verifies(
                 body=pr.get("body") or "",
                 finding=f.to_dict(),
                 comment_id=by_fp.get(f.fingerprint),
+                post_if_proven=review_id is None,
             )
         )
 
