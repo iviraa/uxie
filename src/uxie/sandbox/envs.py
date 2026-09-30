@@ -241,10 +241,15 @@ def docker_runner(env: Path, image: str, command: list[str]) -> tuple[int, str]:
 
 class EnvBuilder:
     def __init__(
-        self, envs_root: Path, image: str = BUILDER_IMAGE, runner: BuildRunner | None = None
+        self,
+        envs_root: Path,
+        image: str = BUILDER_IMAGE,
+        runner: BuildRunner | None = None,
+        min_free_bytes: int = MIN_FREE_BYTES,
     ) -> None:
         self.root, self.image = envs_root, image
         self.runner = runner or docker_runner
+        self.min_free_bytes = min_free_bytes
 
     def ensure(self, repo_root: Path, exclude_newer: str | None = None) -> Path | None:
         """Env dir for this repo's dependencies, or None if it has none or the build failed."""
@@ -268,7 +273,7 @@ class EnvBuilder:
     ) -> Path | None:
         self.root.mkdir(parents=True, exist_ok=True)
         free = shutil.disk_usage(self.root).free
-        if free < MIN_FREE_BYTES:
+        if free < self.min_free_bytes:
             raise RuntimeError(f"refusing env build: only {free / 1024**3:.1f} GiB free")
         tmp = env.with_suffix(".tmp")
         shutil.rmtree(tmp, ignore_errors=True)

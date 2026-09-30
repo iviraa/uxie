@@ -105,10 +105,16 @@ def test_build_and_import_in_sandbox():
         "    assert mypkg.__file__.startswith('/src/')  # PR code, not an installed copy\n"
     )
     try:
-        env = EnvBuilder(work / "envs").ensure(repo, exclude_newer="2025-01-01T00:00:00Z")
+        small = 2 * 1024**3  # a one-package env; CI runners have ~13 GiB free
+        env = EnvBuilder(work / "envs", min_free_bytes=small).ensure(
+            repo, exclude_newer="2025-01-01T00:00:00Z"
+        )
         assert env is not None and (env / "site" / "six.py").exists()
         assert not list((env / "site").glob("mypkg*"))  # the project itself never installed
-        assert EnvBuilder(work / "envs").ensure(repo, "2025-01-01T00:00:00Z") == env  # cached
+        cached = EnvBuilder(work / "envs", min_free_bytes=small).ensure(
+            repo, "2025-01-01T00:00:00Z"
+        )
+        assert cached == env
         backends = [DockerExecutor()]
         if (
             subprocess.run(["kubectl", "get", "ns", "uxie-sandbox"], capture_output=True).returncode
