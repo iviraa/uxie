@@ -133,7 +133,18 @@ def test_specialists_run_in_parallel_and_dedupe(tmp_path, cfg):
         }
     )
     res = review(_pr(), _ws(tmp_path), model, replace(cfg, mode="specialists"))
-    assert len(model.systems) == 4
+    assert len(model.systems) == 3  # behavior is opt-in
     assert sorted(f.title for f in res.findings) == ["edge", "strong"]  # dupe kept the stronger
     assert res.stats["raw_logic"] == 1 and res.stats["raw_edges"] == 2 and res.stats["dupe"] == 1
-    assert res.usage.calls == 4 and res.error is None
+    assert res.usage.calls == 3 and res.error is None
+
+
+def test_behavior_reviewer_can_be_turned_on(tmp_path, cfg):
+    from dataclasses import replace
+
+    model = FocusModel(
+        {"only on logic": [], "only on edge": [], "contracts:": [], "behavior over time": []}
+    )
+    focuses = ("logic", "edges", "contracts", "behavior")
+    review(_pr(), _ws(tmp_path), model, replace(cfg, mode="specialists", focuses=focuses))
+    assert len(model.systems) == 4 and any("behavior over time" in s for s in model.systems)

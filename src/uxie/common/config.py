@@ -44,6 +44,9 @@ def review_settings() -> ReviewSettings:
         price_in_per_mtok=float(os.environ.get("PRICE_IN_PER_MTOK", "1.0")),
         price_out_per_mtok=float(os.environ.get("PRICE_OUT_PER_MTOK", "5.0")),
         region=os.environ.get("AWS_REGION"),
+        focuses=tuple(os.environ["SPECIALISTS"].split(","))
+        if os.environ.get("SPECIALISTS")
+        else None,  # e.g. "logic,edges,contracts,behavior" to turn on the behavior reviewer
         post_confidence=float(os.environ["POST_CONFIDENCE"])
         if os.environ.get("POST_CONFIDENCE")
         else None,

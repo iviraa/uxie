@@ -83,7 +83,7 @@ def test_specialist_calls_nest_under_the_review(tmp_path, cfg):
     spans = _exporter.get_finished_spans()
     (root,) = [s for s in spans if s.name == "review"]
     llm = [s for s in spans if s.name == "llm.converse"]
-    assert len(llm) == 4 and all(s.parent and s.parent.span_id == root.context.span_id for s in llm)
+    assert len(llm) == 3 and all(s.parent and s.parent.span_id == root.context.span_id for s in llm)
 
 
 def test_carrier_roundtrip_links_parent_and_child():

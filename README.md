@@ -7,14 +7,13 @@ comments come with proof instead of only an opinion.
 
 ## Reviewing
 
-When you open or update a pull request, four reviewers read the diff in parallel, each
+When you open or update a pull request, three reviewers read the diff in parallel, each
 looking for one kind of problem:
 
 - **logic**: wrong conditions, operators, arithmetic, off-by-one errors
 - **edge cases**: empty or missing values, boundaries, unhandled errors
-- **contracts**: changes that break callers or violate invariants
-- **behavior**: state not updated, steps in the wrong order, swallowed errors,
-  repeated side effects, inputs changed when they should be copied
+- **contracts**: changes that break callers, violate invariants, or do things in the
+  wrong order
 
 uxie posts a review with a short summary and inline comments on the exact lines, usually
 within 10 to 20 seconds. This works for any language. When you push new commits, it reviews
@@ -59,7 +58,7 @@ flowchart LR
     gh[GitHub] -->|signed webhook| wh[Webhook Lambda]
     wh -->|FIFO, one group per PR| rq[(SQS review queue)]
     rq --> rw[Review worker Lambda]
-    rw -->|4 parallel reviewers| haiku[Bedrock: Claude Haiku]
+    rw -->|3 parallel reviewers| haiku[Bedrock: Claude Haiku]
     rw -->|inline comments| gh
     rw --> ddb[(DynamoDB)]
     rw -->|one job per finding| vq[(SQS verify queue)]

@@ -44,6 +44,10 @@ SPECIALISTS = {
 }
 
 
+# behavior is opt-in: on the benchmark it added no recall over these three, only noise and cost
+DEFAULT_SPECIALISTS = ("logic", "edges", "contracts")
+
+
 def system_prompt(mode: str, focus: str | None = None) -> str:
     base = REVIEWER_SYSTEM + (CONTEXT_ADDENDUM if mode == "context" else "")
     return base + (f"\n\n{SPECIALISTS[focus]}" if focus else "")
