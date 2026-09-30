@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from uxie.sandbox.languages import for_path
 from uxie.sandbox.spec import CONFIRMED, LIKELY, REFUTED
 from uxie.verify.prover import Proof
 
@@ -13,6 +14,12 @@ HEADLINES = {
     REFUTED: "❎ **Couldn't reproduce.** A test that runs this line passes, so this may be a "
     "false alarm.",
 }
+
+
+def _fence(path: str) -> str:
+    """Markdown code-fence language for the test, so GitHub highlights it correctly."""
+    lang = for_path(path)
+    return {"typescript": "ts"}.get(lang.name, lang.name) if lang else ""
 
 
 def verdict_reply(proof: Proof) -> str | None:
@@ -27,7 +34,7 @@ def verdict_reply(proof: Proof) -> str | None:
         "",
         "<details><summary>Test</summary>",
         "",
-        "```python",
+        f"```{_fence(proof.finding.path)}",
         proof.test_code.strip(),
         "```",
         "</details>",

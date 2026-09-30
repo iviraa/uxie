@@ -26,3 +26,11 @@ def test_refuted_hides_failure_line():
 
 def test_inconclusive_stays_quiet():
     assert verdict_reply(_proof("inconclusive")) is None
+
+
+def test_test_block_is_labelled_with_the_language():
+    from uxie.sandbox.spec import RunOutcome
+
+    f = Finding("go/limits/limits.go", 5, "high", "bug", "t", "e", 0.9)
+    p = Proof(f, "confirmed", "package limits\n", head=RunOutcome("failed", 1, 0.1, "x"))
+    assert "```go\n" in verdict_reply(p) and "```python" not in verdict_reply(p)
