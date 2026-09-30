@@ -96,8 +96,54 @@ def job_manifest(
     }
 
 
+def load_config() -> None:
+    """In a pod use the service account; on a laptop use ~/.kube/config."""
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        config.load_kube_config()
+
+
+class JobRunner:
+    """Create a Job, wait for it, return (state, logs), and always clean it up."""
+
+    def __init__(self, namespace: str) -> None:
+        self.ns = namespace
+        self._batch = client.BatchV1Api()
+        self._core = client.CoreV1Api()
+
+    def run(self, body: dict[str, Any], budget_s: int) -> tuple[str, str]:
+        name = body["metadata"]["name"]
+        self._batch.create_namespaced_job(self.ns, body)
+        try:
+            deadline = time.monotonic() + budget_s
+            while time.monotonic() < deadline:
+                status = self._batch.read_namespaced_job_status(name, self.ns).status
+                if status.succeeded or status.failed:
+                    return ("failed" if status.failed else "succeeded"), self._logs(name)
+                time.sleep(0.5)
+            return "timeout", ""
+        finally:
+            self._batch.delete_namespaced_job(
+                name, self.ns, propagation_policy="Background", grace_period_seconds=0
+            )
+
+    def _logs(self, name: str) -> str:
+        pods = self._core.list_namespaced_pod(self.ns, label_selector=f"job-name={name}").items
+        if not pods:
+            return ""
+        try:
+            # raw bytes: the client would otherwise parse JSON logs and return str(dict)
+            resp = self._core.read_namespaced_pod_log(
+                pods[0].metadata.name, self.ns, _preload_content=False
+            )
+            return str(resp.data.decode(errors="replace"))
+        except ApiException:
+            return ""
+
+
 class K8sExecutor:
-    """host_root on this machine backs the chart's "jobs" volume (see deploy/k3d.sh)."""
+    """host_root is where this process sees the shared "jobs" volume (see deploy/k3d.sh)."""
 
     def __init__(
         self,
@@ -105,11 +151,10 @@ class K8sExecutor:
         namespace: str = "uxie-sandbox",
         image: str = "uxie-sandbox:dev",
     ) -> None:
-        config.load_kube_config()
-        self._batch = client.BatchV1Api()
-        self._core = client.CoreV1Api()
+        load_config()
+        self._jobs = JobRunner(namespace)
         self.host_root = host_root.resolve()
-        self.ns, self.image = namespace, image
+        self.image = image
 
     def run(
         self,
@@ -121,9 +166,8 @@ class K8sExecutor:
     ) -> RunOutcome:
         rel = src.resolve().relative_to(self.host_root)  # raises if outside the shared mount
         env_rel = str(env.resolve().relative_to(self.host_root)) if env else None
-        name = f"verify-{uuid.uuid4().hex[:10]}"
         body = job_manifest(
-            name,
+            f"verify-{uuid.uuid4().hex[:10]}",
             str(rel),
             test_path,
             timeout_s,
@@ -131,34 +175,83 @@ class K8sExecutor:
             env_sub_path=env_rel,
             target_file=target_file,
         )
-        self._batch.create_namespaced_job(self.ns, body)
+        state, logs = self._jobs.run(body, timeout_s + 60)
+        if state == "timeout":
+            return RunOutcome(TIMEOUT, -1, float(timeout_s + 60), "job did not finish")
         try:
-            return self._wait(name, timeout_s + 60)
-        finally:
-            self._batch.delete_namespaced_job(
-                name, self.ns, propagation_policy="Background", grace_period_seconds=0
-            )
-
-    def _wait(self, name: str, budget_s: int) -> RunOutcome:
-        deadline = time.monotonic() + budget_s
-        while time.monotonic() < deadline:
-            status = self._batch.read_namespaced_job_status(name, self.ns).status
-            if status.succeeded or status.failed:
-                return self._result(name, bool(status.failed))
-            time.sleep(0.5)
-        return RunOutcome(TIMEOUT, -1, float(budget_s), "job did not finish")
-
-    def _result(self, name: str, job_failed: bool) -> RunOutcome:
-        pods = self._core.list_namespaced_pod(self.ns, label_selector=f"job-name={name}").items
-        if not pods:
-            return RunOutcome(ERROR, -1, 0.0, "no pod for job")
-        try:
-            # raw bytes: the client would otherwise parse JSON logs and return str(dict)
-            resp = self._core.read_namespaced_pod_log(
-                pods[0].metadata.name, self.ns, _preload_content=False
-            )
-            logs = resp.data.decode(errors="replace")
             return RunOutcome(**json.loads(logs.strip().splitlines()[-1]))
-        except (ApiException, IndexError, json.JSONDecodeError, TypeError) as e:
-            reason = "deadline exceeded" if job_failed else str(e)
-            return RunOutcome(TIMEOUT if job_failed else ERROR, -1, 0.0, reason[:500])
+        except (IndexError, json.JSONDecodeError, TypeError) as e:
+            if state == "failed":
+                return RunOutcome(TIMEOUT, -1, 0.0, "deadline exceeded")
+            return RunOutcome(ERROR, -1, 0.0, str(e)[:500])
+
+
+def build_manifest(name: str, env_sub_path: str, image: str, command: list[str]) -> dict[str, Any]:
+    """Dependency install Job: has network (unlike the sandbox), but no privileges or token."""
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {"name": name, "labels": {"uxie.dev/role": "env-builder"}},
+        "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 900,
+            "ttlSecondsAfterFinished": 300,
+            "template": {
+                "metadata": {"labels": {"uxie.dev/role": "env-builder"}},
+                "spec": {
+                    "restartPolicy": "Never",
+                    "automountServiceAccountToken": False,
+                    "enableServiceLinks": False,
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
+                    "containers": [
+                        {
+                            "name": "uv",
+                            "image": image,
+                            "imagePullPolicy": "IfNotPresent",
+                            "command": command,
+                            "env": [
+                                {"name": "HOME", "value": "/tmp"},
+                                {"name": "UV_CACHE_DIR", "value": "/tmp/uv-cache"},
+                            ],
+                            "resources": {
+                                "limits": {"cpu": "2", "memory": "2Gi"},
+                                "requests": {"cpu": "250m", "memory": "256Mi"},
+                            },
+                            "securityContext": {
+                                "allowPrivilegeEscalation": False,
+                                "capabilities": {"drop": ["ALL"]},
+                            },
+                            "volumeMounts": [
+                                {"name": "jobs", "mountPath": "/env", "subPath": env_sub_path},
+                                {"name": "tmp", "mountPath": "/tmp"},
+                            ],
+                        }
+                    ],
+                    "volumes": [
+                        {"name": "jobs", "persistentVolumeClaim": {"claimName": "jobs"}},
+                        {"name": "tmp", "emptyDir": {"sizeLimit": "2Gi"}},
+                    ],
+                },
+            },
+        },
+    }
+
+
+class K8sBuildRunner:
+    """EnvBuilder runner that installs dependencies in a Job instead of `docker run`."""
+
+    def __init__(self, host_root: Path, namespace: str = "uxie-system") -> None:
+        load_config()
+        self._jobs = JobRunner(namespace)
+        self.host_root = host_root.resolve()
+
+    def __call__(self, env: Path, image: str, command: list[str]) -> tuple[int, str]:
+        rel = str(env.resolve().relative_to(self.host_root))
+        body = build_manifest(f"env-{uuid.uuid4().hex[:10]}", rel, image, command)
+        state, logs = self._jobs.run(body, 960)
+        return (0 if state == "succeeded" else 1), logs

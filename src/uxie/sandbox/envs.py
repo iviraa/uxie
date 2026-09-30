@@ -14,7 +14,7 @@ import re
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 BUILDER_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
@@ -161,9 +161,36 @@ def _locked(path: Path) -> Iterator[None]:
         yield
 
 
+# (env dir mounted at /env, image, command) -> (exit code, output)
+BuildRunner = Callable[[Path, str, list[str]], tuple[int, str]]
+
+
+def docker_runner(env: Path, image: str, command: list[str]) -> tuple[int, str]:
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory",
+        "2g",
+        "-v",
+        f"{env.resolve()}:/env",
+        image,
+        *command,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    return proc.returncode, proc.stdout + proc.stderr
+
+
 class EnvBuilder:
-    def __init__(self, envs_root: Path, image: str = BUILDER_IMAGE) -> None:
+    def __init__(
+        self, envs_root: Path, image: str = BUILDER_IMAGE, runner: BuildRunner | None = None
+    ) -> None:
         self.root, self.image = envs_root, image
+        self.runner = runner or docker_runner
 
     def ensure(self, repo_root: Path, exclude_newer: str | None = None) -> Path | None:
         """Env dir for this repo's dependencies, or None if it has none or the build failed."""
@@ -217,19 +244,7 @@ class EnvBuilder:
     ) -> bool:
         req_file = env / f"req-{re.sub(r'[^a-z0-9]+', '-', name.lower())}.txt"
         req_file.write_text("\n".join(reqs) + "\n")
-        cmd = [
-            "docker",
-            "run",
-            "--rm",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--memory",
-            "2g",
-            "-v",
-            f"{env.resolve()}:/env",
-            self.image,
+        uv = [
             "uv",
             "pip",
             "install",
@@ -243,7 +258,7 @@ class EnvBuilder:
             f"/env/{req_file.name}",
         ]
         if exclude_newer:
-            cmd += ["--exclude-newer", exclude_newer]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-        log.append(f"== {name} rc={proc.returncode}\n{proc.stdout}{proc.stderr}")
-        return proc.returncode == 0
+            uv += ["--exclude-newer", exclude_newer]
+        code, output = self.runner(env, self.image, uv)
+        log.append(f"== {name} rc={code}\n{output}")
+        return code == 0

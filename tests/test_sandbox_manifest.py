@@ -27,3 +27,17 @@ def test_env_mount_is_read_only():
     env = next(v for v in c["volumeMounts"] if v["mountPath"] == "/env")
     assert env == {"name": "src", "mountPath": "/env", "subPath": "envs/abc", "readOnly": True}
     assert {"name": "PYTHONPATH", "value": "/env/site"} in c["env"]
+
+
+def test_build_job_has_no_privileges_or_token():
+    from uxie.sandbox.k8s import build_manifest
+
+    m = build_manifest("env-x", "envs/k.tmp", "uv:img", ["uv", "pip", "install"])
+    pod = m["spec"]["template"]["spec"]
+    (c,) = pod["containers"]
+    assert pod["automountServiceAccountToken"] is False
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert c["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+    assert c["securityContext"]["allowPrivilegeEscalation"] is False
+    assert {"name": "jobs", "mountPath": "/env", "subPath": "envs/k.tmp"} in c["volumeMounts"]
+    assert all("hostPath" not in v for v in pod["volumes"])
