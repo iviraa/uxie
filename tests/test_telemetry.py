@@ -82,3 +82,46 @@ def test_specialist_calls_nest_under_the_review(tmp_path, cfg):
     (root,) = [s for s in spans if s.name == "review"]
     llm = [s for s in spans if s.name == "llm.converse"]
     assert len(llm) == 3 and all(s.parent and s.parent.span_id == root.context.span_id for s in llm)
+
+
+def test_carrier_roundtrip_links_parent_and_child():
+    from uxie.common import telemetry
+
+    _exporter.clear()
+    with telemetry.span("webhook") as root:
+        headers = telemetry.carrier()
+    assert headers["traceparent"].startswith("00-")
+    with telemetry.continued(headers), telemetry.span("sqs.receive"):
+        pass
+    child = next(s for s in _exporter.get_finished_spans() if s.name == "sqs.receive")
+    assert child.context.trace_id == root.get_span_context().trace_id
+    assert child.parent.span_id == root.get_span_context().span_id
+
+
+def test_verify_jobs_carry_the_review_trace(tmp_path, cfg):
+    from tests.test_pipeline import _job, _model
+
+    _exporter.clear()
+    queued = []
+    pipeline.run(_job(), FakeGH(), _model(), cfg, FakeStore(), None, tmp_path / "w", queued.append)
+    (review,) = [s for s in _exporter.get_finished_spans() if s.name == "review"]
+    (req,) = queued
+    assert req.trace["traceparent"].split("-")[1] == format(review.context.trace_id, "032x")
+
+
+def test_dispatcher_continues_the_trace():
+    import threading
+
+    from tests.test_dispatcher_loop import REQ, FakeSQS, _msg
+    from uxie.common import telemetry
+    from uxie.verify.main import serve
+
+    _exporter.clear()
+    with telemetry.span("review") as review:
+        req = REQ.__class__(**{**REQ.__dict__, "trace": telemetry.carrier()})
+    stop = threading.Event()
+    sqs = FakeSQS([[_msg(1, body=req.to_json()) | {"Attributes": {"SentTimestamp": "0"}}]], stop)
+    serve(sqs, "q", lambda r: "confirmed", stop)
+    recv = next(s for s in _exporter.get_finished_spans() if s.name == "sqs.receive")
+    assert recv.context.trace_id == review.get_span_context().trace_id
+    assert recv.attributes["queue"] == "verify" and recv.attributes["queue.wait_ms"] > 0

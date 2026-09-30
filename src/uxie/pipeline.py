@@ -205,6 +205,7 @@ def _enqueue_verifies(
                 finding=f.to_dict(),
                 comment_id=by_fp.get(f.fingerprint),
                 post_if_proven=review_id is None,
+                trace=telemetry.carrier(),
             )
         )
 

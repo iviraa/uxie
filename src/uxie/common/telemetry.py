@@ -10,7 +10,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from opentelemetry import context as otel_context
 from opentelemetry import metrics, trace
+from opentelemetry.propagate import extract, inject
 from opentelemetry.trace import Span, Status, StatusCode
 
 _providers: list[Any] = []
@@ -62,6 +64,23 @@ def flush() -> None:
     """Lambda freezes between invocations; push buffered spans/metrics out first."""
     for p in _providers:
         p.force_flush()
+
+
+def carrier() -> dict[str, str]:
+    """The current trace context as W3C headers (traceparent), to ride along in a message."""
+    out: dict[str, str] = {}
+    inject(out)
+    return out
+
+
+@contextmanager
+def continued(headers: dict[str, str] | None) -> Iterator[None]:
+    """Make spans in this block children of the trace that sent the message."""
+    token = otel_context.attach(extract(headers or {}))
+    try:
+        yield
+    finally:
+        otel_context.detach(token)
 
 
 @contextmanager

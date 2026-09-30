@@ -9,15 +9,24 @@ from typing import Any
 
 import boto3
 
-from uxie.common import config
+from uxie.common import config, telemetry
 from uxie.common.logger import get_logger, log
 from uxie.github.webhook import route, verify_signature
 
 logger = get_logger(__name__)
 _sqs = boto3.client("sqs")
+_otel = config.otel_settings()
+telemetry.setup("uxie-webhook", _otel.endpoint if _otel else None, _otel.headers if _otel else None)
 
 
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+    try:
+        return _receive(event)
+    finally:
+        telemetry.flush()
+
+
+def _receive(event: dict[str, Any]) -> dict[str, Any]:
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     raw = event.get("body") or ""
     body = base64.b64decode(raw) if event.get("isBase64Encoded") else raw.encode()
@@ -36,14 +45,25 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     if job is None:
         return _resp(202, "ignored")
 
-    # FIFO: one message group per PR keeps reviews of the same PR in order;
-    # the delivery id dedupes GitHub's webhook retries for 5 minutes
-    _sqs.send_message(
-        QueueUrl=config.queue_url(),
-        MessageBody=json.dumps(job.to_dict()),
-        MessageGroupId=job.group_id,
-        MessageDeduplicationId=delivery or f"{job.group_id}#{job.head_sha}",
-    )
+    attrs = {
+        "github.event": gh_event,
+        "github.delivery": delivery,
+        "pr.repo": job.repo,
+        "pr.number": job.pr_number,
+        "review.trigger": job.trigger,
+    }
+    with telemetry.span("webhook", **attrs):  # root of the PR's end-to-end trace
+        # FIFO: one message group per PR keeps reviews of the same PR in order;
+        # the delivery id dedupes GitHub's webhook retries for 5 minutes
+        _sqs.send_message(
+            QueueUrl=config.queue_url(),
+            MessageBody=json.dumps(job.to_dict()),
+            MessageGroupId=job.group_id,
+            MessageDeduplicationId=delivery or f"{job.group_id}#{job.head_sha}",
+            MessageAttributes={
+                k: {"DataType": "String", "StringValue": v} for k, v in telemetry.carrier().items()
+            },
+        )
     log(logger, logging.INFO, "queued review", job=job.to_dict(), delivery=delivery)
     return _resp(202, "queued")
 

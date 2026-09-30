@@ -148,13 +148,14 @@ Resources:
       Environment:
         Variables:
           REVIEW_QUEUE_URL: !Ref ReviewQueue
+          OTEL_SECRET_ARN: !Ref OtelSecretArn
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt ReviewQueue.QueueName
         - Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
-              Resource: !Ref AppSecretArn
+              Resource: !If [OtelOn, [!Ref AppSecretArn, !Ref OtelSecretArn], !Ref AppSecretArn]
       Events:
         Webhook:
           Type: HttpApi

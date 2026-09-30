@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ def serve(
     while not stop.is_set():
         resp = sqs.receive_message(
             QueueUrl=queue_url,
+            AttributeNames=["SentTimestamp"],
             MaxNumberOfMessages=1,
             WaitTimeSeconds=20,
             VisibilityTimeout=VISIBILITY_S,
@@ -43,12 +45,22 @@ def serve(
         for msg in resp.get("Messages", []):
             try:
                 req = VerifyRequest.from_json(msg["Body"])
-                status = handle_one(req)
+                wait_ms = _wait_ms(msg.get("Attributes", {}))
+                with (
+                    telemetry.continued(req.trace),
+                    telemetry.span("sqs.receive", **{"queue": "verify", "queue.wait_ms": wait_ms}),
+                ):
+                    status = handle_one(req)
                 log(logger, logging.INFO, "job done", status=status, finding=req.fingerprint)
             except Exception:
                 logger.exception("verify failed", extra={"extras": {"id": msg["MessageId"]}})
                 continue
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=msg["ReceiptHandle"])
+
+
+def _wait_ms(attrs: dict[str, str]) -> int | None:
+    sent = attrs.get("SentTimestamp")
+    return int(time.time() * 1000) - int(sent) if sent else None
 
 
 def main() -> None:

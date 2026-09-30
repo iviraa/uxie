@@ -19,6 +19,7 @@ class VerifyRequest:
     finding: dict[str, Any] = field(default_factory=dict)
     comment_id: int | None = None
     post_if_proven: bool = False  # held finding: publish only if the sandbox proves it
+    trace: dict[str, str] = field(default_factory=dict)  # W3C traceparent of the review
 
     @property
     def fingerprint(self) -> str:

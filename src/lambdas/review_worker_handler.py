@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,18 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     failures: list[dict[str, str]] = []
     for record in event.get("Records", []):
         try:
-            _handle(ReviewJob(**json.loads(record["body"])))
+            headers = {
+                k: v["stringValue"]
+                for k, v in record.get("messageAttributes", {}).items()
+                if "stringValue" in v
+            }
+            sent = record.get("attributes", {}).get("SentTimestamp")
+            wait_ms = int(time.time() * 1000) - int(sent) if sent else None
+            with (
+                telemetry.continued(headers),  # child of the webhook's trace
+                telemetry.span("sqs.receive", **{"queue": "review", "queue.wait_ms": wait_ms}),
+            ):
+                _handle(ReviewJob(**json.loads(record["body"])))
         except Exception:
             logger.exception("review failed", extra={"extras": {"message_id": record["messageId"]}})
             failures.append({"itemIdentifier": record["messageId"]})
