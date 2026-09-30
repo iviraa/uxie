@@ -241,11 +241,11 @@ def test_review_body_starts_with_banner(tmp_path, cfg):
 def test_unverifiable_languages_are_posted_not_held(tmp_path, cfg):
     from dataclasses import replace
 
-    ts_patch = "@@ -1,2 +1,3 @@\n const a = 1;\n+if (a <= 0) { run(); }\n const b = 2;"
+    rs_patch = "@@ -1,2 +1,3 @@\n let a = 1;\n+if a <= 0 { run(); }\n let b = 2;"
 
-    class TsGH(FakeGH):
+    class RustGH(FakeGH):  # rust: reviewed, but the sandbox can't verify it
         def list_pr_files(self, repo, n):
-            return [{"filename": "src/app.ts", "status": "modified", "patch": ts_patch}]
+            return [{"filename": "src/app.rs", "status": "modified", "patch": rs_patch}]
 
     unsure_ts = {
         "path": "src/app.ts",
@@ -256,8 +256,8 @@ def test_unverifiable_languages_are_posted_not_held(tmp_path, cfg):
         "explanation": "e",
         "confidence": 0.6,
     }
-    model = FakeModel([tool_turn("submit_review", {"summary": "s", "findings": [unsure_ts]})])
-    gh, queued = TsGH(), []
+    model = FakeModel([tool_turn("submit_review", {"summary": "s", "findings": [unsure_rs]})])
+    gh, queued = RustGH(), []
     pipeline.run(
         _job(),
         gh,
@@ -268,6 +268,6 @@ def test_unverifiable_languages_are_posted_not_held(tmp_path, cfg):
         tmp_path / "w",
         queued.append,
     )
-    assert [c["path"] for c in gh.reviews[0]["comments"]] == ["src/app.ts"]  # posted, not dropped
-    assert queued == []  # the sandbox can't prove TypeScript yet, so nothing is queued
+    assert [c["path"] for c in gh.reviews[0]["comments"]] == ["src/app.rs"]  # posted, not dropped
+    assert queued == []  # the sandbox can't prove Rust, so nothing is queued
     assert "posted only if a test" not in gh.reviews[0]["body"]
