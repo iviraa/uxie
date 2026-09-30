@@ -1,4 +1,4 @@
-.PHONY: install lint test build deploy clean
+.PHONY: install lint test build deploy dispatcher clean
 
 export PYTHONPATH := src:.
 
@@ -26,3 +26,6 @@ deploy: build
 clean:
 	rm -rf .aws-sam .mypy_cache .ruff_cache .pytest_cache
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+
+dispatcher:  ## rebuild + roll out the verify dispatcher on the local k3s cluster
+	./deploy/dispatcher.sh
