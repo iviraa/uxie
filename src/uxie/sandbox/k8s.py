@@ -11,6 +11,7 @@ from typing import Any
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
+from uxie.sandbox.languages import PYTHON, Language
 from uxie.sandbox.spec import ERROR, TIMEOUT, RunOutcome
 
 ROLE_LABEL = {"uxie.dev/role": "sandbox"}
@@ -25,9 +26,13 @@ def job_manifest(
     pull: str = "IfNotPresent",
     env_sub_path: str | None = None,
     target_file: str | None = None,
+    lang: Language = PYTHON,
 ) -> dict[str, Any]:
     """Pure function so the security posture is unit-testable without a cluster."""
-    env_vars = [{"name": "TEST_TIMEOUT", "value": str(timeout_s)}]
+    env_vars = [
+        {"name": "TEST_TIMEOUT", "value": str(timeout_s)},
+        {"name": "UXIE_LANG", "value": lang.name},
+    ]
     if target_file:
         env_vars.append({"name": "UXIE_TARGET_FILE", "value": target_file})
     mounts: list[dict[str, Any]] = [
@@ -35,7 +40,7 @@ def job_manifest(
         {"name": "tmp", "mountPath": "/tmp"},
     ]
     if env_sub_path:  # dependency env from the same volume, read-only
-        env_vars.append({"name": "UXIE_DEPS", "value": "/env/site"})  # see sitecustomize.py
+        env_vars += [{"name": k, "value": v} for k, v in lang.deps_env("/env").items()]
         mounts.append(
             {"name": "src", "mountPath": "/env", "subPath": env_sub_path, "readOnly": True}
         )
@@ -70,8 +75,10 @@ def job_manifest(
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
-                                    "memory": "512Mi",
-                                    "ephemeral-storage": "100Mi",
+                                    "memory": lang.memory,
+                                    "ephemeral-storage": "100Mi"
+                                    if lang.tmp_in_memory
+                                    else lang.tmp_size,
                                 },
                                 "requests": {"cpu": "250m", "memory": "128Mi"},
                             },
@@ -88,7 +95,12 @@ def job_manifest(
                             "name": "src",
                             "persistentVolumeClaim": {"claimName": "jobs", "readOnly": True},
                         },
-                        {"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}},
+                        {
+                            "name": "tmp",
+                            "emptyDir": {"medium": "Memory", "sizeLimit": lang.tmp_size}
+                            if lang.tmp_in_memory
+                            else {"sizeLimit": lang.tmp_size},
+                        },
                     ],
                 },
             },
@@ -149,12 +161,12 @@ class K8sExecutor:
         self,
         host_root: Path,
         namespace: str = "uxie-sandbox",
-        image: str = "uxie-sandbox:dev",
+        image: str | None = None,
     ) -> None:
         load_config()
         self._jobs = JobRunner(namespace)
         self.host_root = host_root.resolve()
-        self.image = image
+        self.image = image  # override (tests); None = the language's own image
 
     def run(
         self,
@@ -163,6 +175,7 @@ class K8sExecutor:
         timeout_s: int,
         env: Path | None = None,
         target_file: str | None = None,
+        lang: Language = PYTHON,
     ) -> RunOutcome:
         rel = src.resolve().relative_to(self.host_root)  # raises if outside the shared mount
         env_rel = str(env.resolve().relative_to(self.host_root)) if env else None
@@ -171,9 +184,10 @@ class K8sExecutor:
             str(rel),
             test_path,
             timeout_s,
-            self.image,
+            self.image or lang.image,
             env_sub_path=env_rel,
             target_file=target_file,
+            lang=lang,
         )
         state, logs = self._jobs.run(body, timeout_s + 60)
         if state == "timeout":

@@ -20,7 +20,7 @@ class FakeExec:
         self.targets: list = []
         self.ran: list[tuple[str, str]] = []
 
-    def run(self, src: Path, test_path: str, timeout_s: int, env=None, target_file=None):
+    def run(self, src: Path, test_path: str, timeout_s: int, env=None, target_file=None, lang=None):
         side = src.name
         self.targets.append((side, target_file))
         code = (src / test_path).read_text()

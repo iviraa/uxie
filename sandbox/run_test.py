@@ -57,8 +57,7 @@ def _reached() -> list[int] | None:
         return []  # tracing was on but nothing recorded: the file never ran
 
 
-def main() -> None:
-    test_path, timeout = sys.argv[1], int(os.environ.get("TEST_TIMEOUT", "60"))
+def run_python(test_path: str, timeout: int) -> dict:
     cmd = [
         sys.executable,
         "-m",
@@ -79,26 +78,37 @@ def main() -> None:
         here = os.path.dirname(os.path.abspath(__file__))
         if here not in env.get("PYTHONPATH", "").split(os.pathsep):
             env["PYTHONPATH"] = os.pathsep.join(p for p in (here, env.get("PYTHONPATH")) if p)
-    t0 = time.monotonic()
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
-        (outcome, failure), code = classify(REPORT, proc.returncode), proc.returncode
-        out = proc.stdout + proc.stderr
     except subprocess.TimeoutExpired as e:
-        outcome, code, failure = "timeout", -1, ""
         out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else ""
-    print(
-        json.dumps(
-            {
-                "outcome": outcome,
-                "exit_code": code,
-                "duration_s": round(time.monotonic() - t0, 2),
-                "failure": failure,
-                "output_tail": out[-3000:],
-                "reached": _reached(),
-            }
-        )
+        return {"outcome": "timeout", "exit_code": -1, "failure": "", "output_tail": out}
+    outcome, failure = classify(REPORT, proc.returncode)
+    return {
+        "outcome": outcome,
+        "exit_code": proc.returncode,
+        "failure": failure,
+        "output_tail": proc.stdout + proc.stderr,
+        "reached": _reached(),
+    }
+
+
+RUNNERS = {"python": run_python}
+
+
+def main() -> None:
+    test_path, timeout = sys.argv[1], int(os.environ.get("TEST_TIMEOUT", "60"))
+    lang = os.environ.get("UXIE_LANG", "python")
+    t0 = time.monotonic()
+    runner = RUNNERS.get(lang)
+    result = (
+        runner(test_path, timeout)
+        if runner
+        else {"outcome": "error", "exit_code": -1, "failure": f"no runner for {lang}"}
     )
+    result["duration_s"] = round(time.monotonic() - t0, 2)
+    result["output_tail"] = str(result.get("output_tail", ""))[-3000:]
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

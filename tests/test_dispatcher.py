@@ -57,7 +57,7 @@ class FakeExec:
     def __init__(self, head="failed", base="passed"):
         self.out = {"head": head, "base": base}
 
-    def run(self, src, test_path, timeout_s, env=None, target_file=None):
+    def run(self, src, test_path, timeout_s, env=None, target_file=None, lang=None):
         return RunOutcome(self.out[src.name], 1, 0.1, "AssertionError: x", "", [4])
 
 

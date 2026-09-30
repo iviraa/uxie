@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -15,6 +14,7 @@ from uxie.review.model import ChatModel, Usage
 from uxie.review.reviewer import PullRequest
 from uxie.review.workspace import Workspace
 from uxie.sandbox.executor import Executor, stage
+from uxie.sandbox.languages import PYTHON, Language, for_path
 from uxie.sandbox.spec import (
     ERROR,
     FAILED,
@@ -25,25 +25,31 @@ from uxie.sandbox.spec import (
     decide,
 )
 
-TEST_PATH = "test_uxie_verify.py"  # repo root, so `python -m pytest` can import the package
+TEST_PATH = "test_uxie_verify.py"  # python's location; other languages decide their own
 
-SYSTEM = """\
-You write a single pytest file that checks whether a reported bug is real.
+SYSTEM_TEMPLATE = """\
+You write a single {lang} test file that checks whether a reported bug is real.
 
 The test must assert the CORRECT behavior the code should have. It must PASS on correct
 code and FAIL if the reported bug exists. It will run twice: on the code before the PR
 and on the code after it.
 
 Rules:
-- Import the code under test from the repository root (e.g. `from pkg.module import f`).
-  Read the files first; call functions with their real signatures.
+- {rules}
+- Read the files first; call functions with their real signatures.
 - Exercise the exact code path in the report. Keep it small: one to three test functions.
 - No network, no files outside /tmp, no sleeping, deterministic inputs only.
 - Never mock or monkeypatch the code under test, and never assert on the bug itself
   (assert what correct code does, not what the buggy code does).
-- Use only the standard library and pytest.
 
 Call submit_test with the complete file contents."""
+
+
+def system_prompt(lang: Language) -> str:
+    return SYSTEM_TEMPLATE.format(lang=lang.name, rules=lang.test_rules)
+
+
+SYSTEM = system_prompt(PYTHON)
 
 RETRY = """\
 Your test could not run, so it proves nothing yet:
@@ -103,8 +109,10 @@ class TestWriter(Protocol):
 class ConversationWriter:
     """Bedrock-backed writer: our own tool loop over the workspace."""
 
-    def __init__(self, model: ChatModel, ws: Workspace, max_turns: int) -> None:
-        self._model, self._ws, self._max_turns = model, ws, max_turns
+    def __init__(
+        self, model: ChatModel, ws: Workspace, max_turns: int, system: str = SYSTEM
+    ) -> None:
+        self._model, self._ws, self._max_turns, self._system = model, ws, max_turns, system
         self._conv: Conversation | None = None
         self.usage = Usage()
 
@@ -113,7 +121,7 @@ class ConversationWriter:
             specs = [*tools.CONTEXT_TOOLS, SUBMIT_TEST]
             self._conv = Conversation(
                 self._model,
-                SYSTEM,
+                self._system,
                 message,
                 specs,
                 "submit_test",
@@ -169,18 +177,6 @@ def _brief(f: Finding, pr: PullRequest) -> str:
     )
 
 
-def _syntax_error(code: str) -> str | None:
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as e:
-        return f"SyntaxError: {e.msg} (line {e.lineno})"
-    has_test = any(
-        isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name.startswith("test")
-        for n in ast.walk(tree)
-    )
-    return None if has_test else "No test functions found (names must start with test)."
-
-
 def prove(
     finding: Finding,
     pr: PullRequest,
@@ -193,11 +189,17 @@ def prove(
     cfg: ProverSettings | None = None,
     env: Path | None = None,
     writer: TestWriter | None = None,
+    lang: Language | None = None,
 ) -> Proof:
     cfg = cfg or ProverSettings()
-    writer = writer or ConversationWriter(model, head_ws, cfg.max_tool_turns)
+    lang = lang or for_path(finding.path) or PYTHON
+    writer = writer or ConversationWriter(model, head_ws, cfg.max_tool_turns, system_prompt(lang))
     proof = Proof(finding, INCONCLUSIVE, usage=writer.usage)
-    message = _brief(finding, pr)
+    test_path = lang.test_path(finding.path, head_snapshot)
+    hint = lang.hint(finding.path, head_snapshot)
+    message = _brief(finding, pr) + (f"\n\n{hint}" if hint else "")
+    message += f"\n\nThe test file will be saved as {test_path}."
+    has_deps = env is not None
 
     for attempt in range(1, cfg.max_attempts + 1):
         sub = writer.write(message)
@@ -208,14 +210,14 @@ def prove(
         proof.test_code = str(sub.get("test_code") or "")
         proof.rationale = str(sub.get("rationale") or "")
 
-        problem = _syntax_error(proof.test_code)
+        problem = lang.syntax_error(proof.test_code)
         if problem is None:
             job = VerifyJob(
                 f"{finding.fingerprint or 'f'}-{attempt}",
                 "",
                 "",
                 "",
-                TEST_PATH,
+                test_path,
                 proof.test_code,
                 finding.to_dict(),
                 cfg.timeout_s,
@@ -224,11 +226,12 @@ def prove(
                 "sandbox.run", **{"sandbox.side": "head", "attempt": attempt}
             ) as sp:
                 proof.head = ex.run(
-                    stage(head_snapshot, job, workdir / "head"),
-                    TEST_PATH,
+                    stage(head_snapshot, job, workdir / "head", lang, has_deps),
+                    test_path,
                     cfg.timeout_s,
                     env,
                     finding.path,  # trace which lines of the flagged file the test executes
+                    lang,
                 )
                 sp.set_attribute("sandbox.outcome", proof.head.outcome)
                 sp.set_attribute("sandbox.reached", proof.head.reaches(finding.line))
@@ -250,10 +253,15 @@ def prove(
 
     assert proof.head is not None
     if proof.head.outcome == FAILED and base_snapshot is not None:
-        job = VerifyJob("base", "", "", "", TEST_PATH, proof.test_code, {}, cfg.timeout_s)
+        job = VerifyJob("base", "", "", "", test_path, proof.test_code, {}, cfg.timeout_s)
         with telemetry.span("sandbox.run", **{"sandbox.side": "base"}) as sp:
             proof.base = ex.run(
-                stage(base_snapshot, job, workdir / "base"), TEST_PATH, cfg.timeout_s, env
+                stage(base_snapshot, job, workdir / "base", lang, has_deps),
+                test_path,
+                cfg.timeout_s,
+                env,
+                None,
+                lang,
             )
             sp.set_attribute("sandbox.outcome", proof.base.outcome)
     proof.verdict = decide(proof.head, proof.base)

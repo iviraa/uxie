@@ -115,7 +115,7 @@ def main() -> None:
     secret = config.app_secret(cfg.app_secret_arn)
     jobs = Path(cfg.jobs_root)
     model = BedrockModel(cfg.prover_model_id, cfg.region)
-    ex = K8sExecutor(jobs, image=cfg.sandbox_image)
+    ex = K8sExecutor(jobs)  # each language brings its own sandbox image
     envs = EnvBuilder(jobs / "envs", runner=K8sBuildRunner(jobs))
     snaps = Snapshots(jobs / "snapshots")
     store = ReviewStore(cfg.reviews_table)

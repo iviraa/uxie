@@ -23,9 +23,9 @@ from uxie.review.findings import Finding
 from uxie.review.model import ChatModel
 from uxie.review.reviewer import PullRequest, review
 from uxie.review.workspace import Workspace
+from uxie.sandbox.languages import verifiable
 from uxie.store.lake import Lake
 from uxie.store.reviews import ReviewStore
-from uxie.verify.languages import verifiable
 from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
