@@ -6,6 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from urllib.parse import unquote
 
 import boto3
 
@@ -88,7 +89,11 @@ def otel_settings() -> OtelSettings | None:
         return None
     raw = boto3.client("secretsmanager").get_secret_value(SecretId=arn)["SecretString"]
     data = json.loads(raw)
-    headers = dict(h.split("=", 1) for h in str(data.get("headers", "")).split(",") if "=" in h)
+    # same format as OTEL_EXPORTER_OTLP_HEADERS: comma-separated k=v, values URL-encoded
+    headers = {
+        k.strip(): unquote(v.strip())
+        for k, v in (h.split("=", 1) for h in str(data.get("headers", "")).split(",") if "=" in h)
+    }
     return OtelSettings(endpoint=str(data["endpoint"]).rstrip("/"), headers=headers)
 
 
