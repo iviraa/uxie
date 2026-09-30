@@ -38,12 +38,9 @@ def inline_comments(findings: list[Finding]) -> list[dict[str, Any]]:
 
 
 def review_body(summary: str, findings: list[Finding], note: str = "") -> str:
-    head = (
-        f"**uxie review:** {len(findings)} finding(s)"
-        if findings
-        else ("**uxie review:** no defects found")
-    )
-    parts = [f"```\n{BANNER.rstrip()}\n```", "", head, "", summary.strip()]
+    parts = [f"```\n{BANNER.rstrip()}\n```"]
+    if summary.strip():
+        parts += ["", summary.strip()]
     if note:
         parts += ["", note]
     return "\n".join([*parts, "", FOOTER, REVIEW_MARK])

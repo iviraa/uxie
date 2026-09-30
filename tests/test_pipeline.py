@@ -171,7 +171,7 @@ def test_clean_pr_gets_one_review_then_stays_quiet(tmp_path, cfg):
     for _ in range(2):
         empty = FakeModel([tool_turn("submit_review", {"summary": "ok", "findings": []})])
         pipeline.run(_job(), gh, empty, cfg, FakeStore(), None, tmp_path / "w")
-    assert len(gh.reviews) == 1 and "no defects found" in gh.reviews[0]["body"]
+    assert len(gh.reviews) == 1 and "\n\nok\n" in gh.reviews[0]["body"]
 
 
 def test_posted_findings_are_queued_for_verification(tmp_path, cfg):
@@ -233,5 +233,6 @@ def test_review_body_starts_with_banner(tmp_path, cfg):
     pipeline.run(_job(), gh, _model(), cfg, FakeStore(), None, tmp_path / "w")
     body = gh.reviews[0]["body"]
     assert body.startswith("```\n") and BANNER.splitlines()[2] in body
-    assert "**uxie review:**" in body and "reviewed by uxie" in body
+    assert "uxie review" not in body  # straight from the summary
+    assert body.index("```\n\n") < body.index("s\n") < body.index("reviewed by uxie")
     assert max(len(line) for line in BANNER.splitlines()) <= 80  # no sideways scroll on GitHub
