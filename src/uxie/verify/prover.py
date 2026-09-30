@@ -112,9 +112,15 @@ class ConversationWriter:
         if self._conv is None:
             specs = [*tools.CONTEXT_TOOLS, SUBMIT_TEST]
             self._conv = Conversation(
-                self._model, SYSTEM, message, specs, "submit_test", self._ws, FORCE
+                self._model,
+                SYSTEM,
+                message,
+                specs,
+                "submit_test",
+                self._ws,
+                FORCE,
+                usage=self.usage,
             )
-            self.usage = self._conv.usage
         else:
             self._conv.reply(message)  # feedback is the answer to the last submit_test call
         return self._conv.run(self._max_turns)

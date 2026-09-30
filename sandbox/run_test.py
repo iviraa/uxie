@@ -68,6 +68,8 @@ def main() -> None:
         "-p",
         "no:cacheprovider",
         f"--junitxml={REPORT}",
+        "-c",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "pytest.ini"),
         "--rootdir=.",
         test_path,
     ]

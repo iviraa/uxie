@@ -134,3 +134,8 @@ def test_failing_without_reaching_is_not_evidence(tmp_path):
     p = _prove(tmp_path, model, FakeExec(["failed"] * 3, reached=[[], [], [90]]))
     assert (p.verdict, p.attempts) == (INCONCLUSIVE, 3)
     assert "never exercised" in p.note
+
+
+def test_proof_usage_counts_model_calls(tmp_path):
+    p = _prove(tmp_path, FakeModel([_submit(GOOD_TEST, "u1")]), FakeExec(["failed"]))
+    assert p.usage.calls == 1 and p.usage.input_tokens == 100

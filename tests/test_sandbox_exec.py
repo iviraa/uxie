@@ -132,3 +132,15 @@ def test_infinite_loop_times_out(ex, snaps, tmp_path):
     )
     v = verify(job, snaps[0], snaps[1], tmp_path / "t", ex)
     assert v.head.outcome == "timeout"
+
+
+def test_repo_pytest_config_is_ignored(ex, snaps, tmp_path):
+    # a repo config with plugin-only flags would otherwise abort pytest before our test runs
+    (snaps[1] / "setup.cfg").write_text("[tool:pytest]\naddopts = --cov=lib\n")
+    v = _verify(
+        ex,
+        snaps,
+        tmp_path,
+        "from lib.mathx import clamp\ndef test_t():\n    assert clamp(-5, 0, 10) == 0\n",
+    )
+    assert v.head.outcome == "passed", v.head.output_tail

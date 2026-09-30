@@ -35,6 +35,7 @@ class Conversation:
         ws: Workspace,
         force_text: str,
         cache: bool = True,
+        usage: Usage | None = None,
     ) -> None:
         self.model, self.specs, self.final, self.ws = model, specs, final_tool, ws
         self.force_text, self.cache = force_text, cache
@@ -42,7 +43,7 @@ class Conversation:
         if cache:
             self.system.append(CACHE_POINT)
         self.messages: list[dict[str, Any]] = [{"role": "user", "content": [{"text": first_text}]}]
-        self.usage = Usage()
+        self.usage = usage if usage is not None else Usage()  # shared so callers see totals
         self.calls: list[dict[str, Any]] = []
         self._pending: list[dict[str, Any]] = []
 
