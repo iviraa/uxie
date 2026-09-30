@@ -50,3 +50,42 @@ def test_stop_is_checked_between_jobs():
 
     serve(sqs, "q", handle_one, stop)
     assert sqs.deleted == ["r1"] and len(sqs.batches) == 1
+
+
+class HeartbeatSQS(FakeSQS):
+    def __init__(self, batches, stop):
+        super().__init__(batches, stop)
+        self.extended = []
+
+    def change_message_visibility(self, QueueUrl, ReceiptHandle, VisibilityTimeout):  # noqa: N803
+        self.extended.append((ReceiptHandle, VisibilityTimeout))
+
+
+def test_heartbeat_extends_visibility_and_lease_during_a_long_proof():
+    import time
+
+    stop = threading.Event()
+    sqs = HeartbeatSQS([[_msg(1)]], stop)
+    leases = []
+
+    def slow(req):
+        time.sleep(0.35)  # a proof that outlives several heartbeats
+        return "confirmed"
+
+    serve(sqs, "q", slow, stop, extend_lease=leases.append, heartbeat_s=0.1)
+    assert len(sqs.extended) >= 2 and all(h == "r1" for h, _ in sqs.extended)
+    assert len(leases) == len(sqs.extended) and leases[0] == REQ
+    assert sqs.deleted == ["r1"]
+
+
+def test_busy_job_is_left_in_the_queue():
+    from uxie.store.reviews import Busy
+
+    stop = threading.Event()
+    sqs = FakeSQS([[_msg(1)]], stop)
+
+    def busy(req):
+        raise Busy("another pod is on it")
+
+    serve(sqs, "q", busy, stop)
+    assert sqs.deleted == []  # comes back after visibility expires, in case that pod dies

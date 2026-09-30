@@ -29,7 +29,9 @@ logger = get_logger(__name__)
 
 
 class VerifyStore(Protocol):
-    def claim_verify(self, repo: str, pr: int, sha: str, fingerprint: str) -> bool: ...
+    def claim_verify(self, repo: str, pr: int, sha: str, fingerprint: str) -> bool:
+        """False if already finished; raises Busy if another worker holds a live lease."""
+        ...
 
     def finish_verify(
         self, repo: str, pr: int, sha: str, fingerprint: str, status: str, **fields: Any

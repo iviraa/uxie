@@ -3,3 +3,4 @@ ruff>=0.4.0
 mypy>=1.10.0
 pytest>=8.0.0
 kubernetes>=31.0.0
+moto[dynamodb]>=5.0

@@ -22,16 +22,41 @@ from uxie.github.client import GitHubClient
 from uxie.review.model import BedrockModel
 from uxie.sandbox.envs import EnvBuilder
 from uxie.sandbox.k8s import K8sBuildRunner, K8sExecutor
-from uxie.store.reviews import ReviewStore
+from uxie.store.reviews import Busy, ReviewStore
 from uxie.verify.dispatcher import Snapshots, handle
 from uxie.verify.request import VerifyRequest
 
 logger = get_logger(__name__)
-VISIBILITY_S = 1800  # matches the queue; a proof must finish before it reappears
+VISIBILITY_S = 120  # short: a crashed pod's job comes back within ~2 minutes
+HEARTBEAT_S = 45  # while a proof runs, keep extending the message and the lease
+
+
+class _Heartbeat(threading.Thread):
+    """Keeps a message invisible (and our DynamoDB lease alive) until the proof finishes."""
+
+    def __init__(self, beat: Callable[[], None], every: float) -> None:
+        super().__init__(daemon=True)
+        self._beat, self._every, self._done = beat, every, threading.Event()
+
+    def run(self) -> None:
+        while not self._done.wait(self._every):
+            try:
+                self._beat()
+            except Exception:
+                logger.exception("heartbeat failed")  # the job may then be retried elsewhere
+
+    def stop(self) -> None:
+        self._done.set()
+        self.join(timeout=5)
 
 
 def serve(
-    sqs: Any, queue_url: str, handle_one: Callable[[VerifyRequest], str], stop: threading.Event
+    sqs: Any,
+    queue_url: str,
+    handle_one: Callable[[VerifyRequest], str],
+    stop: threading.Event,
+    extend_lease: Callable[[VerifyRequest], None] | None = None,
+    heartbeat_s: float = HEARTBEAT_S,
 ) -> None:
     """Delete a message only after it's handled; failures reappear and later dead-letter."""
     while not stop.is_set():
@@ -43,8 +68,20 @@ def serve(
             VisibilityTimeout=VISIBILITY_S,
         )
         for msg in resp.get("Messages", []):
+            handle = msg["ReceiptHandle"]
+            hb: _Heartbeat | None = None
             try:
                 req = VerifyRequest.from_json(msg["Body"])
+
+                def beat(req: VerifyRequest = req, handle: str = handle) -> None:
+                    sqs.change_message_visibility(
+                        QueueUrl=queue_url, ReceiptHandle=handle, VisibilityTimeout=VISIBILITY_S
+                    )
+                    if extend_lease:
+                        extend_lease(req)
+
+                hb = _Heartbeat(beat, heartbeat_s)
+                hb.start()
                 wait_ms = _wait_ms(msg.get("Attributes", {}))
                 with (
                     telemetry.continued(req.trace),
@@ -52,9 +89,15 @@ def serve(
                 ):
                     status = handle_one(req)
                 log(logger, logging.INFO, "job done", status=status, finding=req.fingerprint)
+            except Busy:
+                log(logger, logging.INFO, "job busy elsewhere; will retry", id=msg["MessageId"])
+                continue  # don't delete: if that worker dies, this message comes back
             except Exception:
                 logger.exception("verify failed", extra={"extras": {"id": msg["MessageId"]}})
                 continue
+            finally:
+                if hb:
+                    hb.stop()
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=msg["ReceiptHandle"])
 
 
@@ -86,7 +129,13 @@ def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):  # finish the current job, then exit
         signal.signal(sig, lambda *_: stop.set())
     log(logger, logging.INFO, "dispatcher started", queue=cfg.queue_url)
-    serve(boto3.client("sqs", region_name=cfg.region), cfg.queue_url, handle_one, stop)
+
+    def extend_lease(req: VerifyRequest) -> None:
+        store.extend_verify(req.repo, req.pr_number, req.head_sha, req.fingerprint)
+
+    serve(
+        boto3.client("sqs", region_name=cfg.region), cfg.queue_url, handle_one, stop, extend_lease
+    )
 
 
 if __name__ == "__main__":

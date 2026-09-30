@@ -9,7 +9,12 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
-LEASE_SECONDS = 900  # matches the worker timeout
+LEASE_SECONDS = 900  # review worker: matches the Lambda timeout
+VERIFY_LEASE_SECONDS = 120  # dispatcher: short, renewed by a heartbeat while a proof runs
+
+
+class Busy(Exception):
+    """Another worker holds a live lease on this job; retry later instead of dropping it."""
 
 
 class ReviewStore:
@@ -29,21 +34,40 @@ class ReviewStore:
         return self._claim(self.key(repo, pr, sha), force)
 
     def claim_verify(self, repo: str, pr: int, sha: str, fingerprint: str) -> bool:
-        return self._claim(self.verify_key(repo, pr, sha, fingerprint), force=False)
+        """True if claimed; False if already finished; Busy if someone is working on it."""
+        key = self.verify_key(repo, pr, sha, fingerprint)
+        if self._claim(key, force=False, lease=VERIFY_LEASE_SECONDS):
+            return True
+        item = self._table.get_item(Key=key, ConsistentRead=True).get("Item") or {}
+        if item.get("status") == "in_progress":
+            raise Busy(f"{key['SK']} is being verified")
+        return False
+
+    def extend_verify(self, repo: str, pr: int, sha: str, fingerprint: str) -> None:
+        """Heartbeat: keep our lease alive while the proof is still running."""
+        now = int(time.time())
+        self._table.update_item(
+            Key=self.verify_key(repo, pr, sha, fingerprint),
+            UpdateExpression="SET lease_until = :until",
+            ConditionExpression="#s = :ip",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":until": now + VERIFY_LEASE_SECONDS, ":ip": "in_progress"},
+        )
 
     def finish_verify(
         self, repo: str, pr: int, sha: str, fingerprint: str, status: str, **fields: Any
     ) -> None:
         self._finish(self.verify_key(repo, pr, sha, fingerprint), status, **fields)
 
-    def _claim(self, key: dict[str, str], force: bool) -> bool:
+    def _claim(self, key: dict[str, str], force: bool, lease: int = LEASE_SECONDS) -> bool:
         now = int(time.time())
-        # a fresh sha, a crashed worker's expired lease, or a failed attempt can be claimed;
-        # force (/review command) may also redo a finished review
-        cond = "attribute_not_exists(PK) OR lease_until < :now OR #s = :failed"
+        # claimable: new, a crashed worker's expired lease, or a failed attempt. Finished jobs
+        # are not (a redelivered message must not redo a review or post a second reply);
+        # only force (/review) may redo a finished review.
+        cond = "attribute_not_exists(PK) OR (#s = :ip AND lease_until < :now) OR #s = :failed"
         if force:
             cond += " OR #s IN (:done, :skipped)"
-        values: dict[str, Any] = {":now": now, ":failed": "failed"}
+        values: dict[str, Any] = {":now": now, ":failed": "failed", ":ip": "in_progress"}
         if force:
             values |= {":done": "done", ":skipped": "skipped"}
         try:
@@ -51,7 +75,7 @@ class ReviewStore:
                 Item={
                     **key,
                     "status": "in_progress",
-                    "lease_until": now + LEASE_SECONDS,
+                    "lease_until": now + lease,
                     "started_at": now,
                 },
                 ConditionExpression=cond,
