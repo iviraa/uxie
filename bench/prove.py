@@ -32,11 +32,8 @@ from uxie.sandbox.spec import CONFIRMED, LIKELY, REFUTED
 from uxie.verify.prover import ProverSettings, TestWriter, prove
 
 JOBS = Path.home() / ".uxie" / "jobs"
+PRICES = (1.0, 5.0)  # USD per million input/output tokens; set from --price-in/--price-out
 WRITER_FACTORY: Callable[[Path], TestWriter] | None = None  # set by local experiment scripts
-POLICIES = {
-    "strict": {CONFIRMED, LIKELY},  # only post what a test demonstrated
-    "lenient": None,  # post everything except refuted
-}
 
 
 def _commit_date(case: Case) -> str:
@@ -88,7 +85,7 @@ def prove_case(
         if writer is not None:
             cost, turns = getattr(writer, "cost_usd", 0.0), getattr(writer, "turns", 0)
         else:
-            cost, turns = p.usage.cost_usd(1.0, 5.0), p.usage.calls
+            cost, turns = p.usage.cost_usd(*PRICES), p.usage.calls
         proofs.append({**p.to_dict(), "cost_usd": cost, "turns": turns})
     if case.mutation:  # mutated copies are per-case; don't let them pile up on disk
         shutil.rmtree(head_root, ignore_errors=True)
@@ -121,6 +118,14 @@ def run(args: argparse.Namespace) -> None:
         and r["case_id"] not in done
         and int(r["case_id"].split("-")[-2], 16) % n == k
     ]
+    global PRICES
+    PRICES = (args.price_in, args.price_out)
+    if args.held_below is not None:  # prove only what the live gate would hold back
+        todo = [
+            {**r, "findings": [f for f in r["findings"] if f["confidence"] < args.held_below]}
+            for r in todo
+        ]
+        todo = [r for r in todo if r["findings"]]
     if args.only_cases:  # restrict to the cases of an earlier run, for paired comparisons
         keep = {json.loads(ln)["case_id"] for ln in args.only_cases.read_text().splitlines()}
         todo = [r for r in todo if r["case_id"] in keep]
@@ -165,6 +170,10 @@ def run(args: argparse.Namespace) -> None:
             )
 
 
+def _fkey(f: dict[str, Any]) -> str:
+    return str(f.get("fingerprint") or f"{f['path']}:{f['line']}")
+
+
 def derive(args: argparse.Namespace) -> None:
     proofs: dict[str, dict[str, Any]] = {}
     for path in sorted(RESULTS.glob(f"{_stem(args)}-proofs.*.jsonl")):
@@ -174,32 +183,37 @@ def derive(args: argparse.Namespace) -> None:
                 proofs[row["case_id"]] = row
     # score only cases we proved, plus the source's own rows for exactly those cases
     base_rows = [r for r in latest(args.source) if r["case_id"] in proofs]
-    with (RESULTS / f"{args.source}-subset.jsonl").open("w") as fh:
+    with (RESULTS / f"{_stem(args)}-subset.jsonl").open("w") as fh:
         fh.writelines(json.dumps(r) + "\n" for r in base_rows)
     print(f"{len(base_rows)} proven cases")
-    for name, keep in POLICIES.items():
+
+    gate = args.held_below
+    proven_ok = {CONFIRMED, LIKELY}
+    policies: dict[str, Callable[[dict[str, Any], str | None], bool]] = (
+        {"gated": lambda f, v: f["confidence"] >= gate or v in proven_ok}  # live bot's rule
+        if gate is not None
+        else {"strict": lambda f, v: v in proven_ok, "lenient": lambda f, v: v != REFUTED}
+    )
+    for name, keep in policies.items():
         out = RESULTS / f"{_stem(args)}-verify-{name}.jsonl"
         with out.open("w") as fh:
             for r in base_rows:
-                p = proofs.get(r["case_id"], {})
-                verdicts = [x["verdict"] for x in p.get("proofs", [])]
-                if r.get("error") or (r.get("findings") and len(verdicts) != len(r["findings"])):
+                p = proofs[r["case_id"]]
+                verdict = {_fkey(x["finding"]): x["verdict"] for x in p.get("proofs", [])}
+                needs = [f for f in r.get("findings", []) if gate is None or f["confidence"] < gate]
+                if r.get("error") or p.get("error") or any(_fkey(f) not in verdict for f in needs):
                     fh.write(json.dumps({"case_id": r["case_id"], "error": "unproven"}) + "\n")
                     continue
-                kept = [
-                    f
-                    for f, v in zip(r["findings"], verdicts, strict=True)
-                    if (v in keep if keep else v != REFUTED)
-                ]
-                extra_cost = sum(x["cost_usd"] for x in p.get("proofs", []))
+                kept = [f for f in r["findings"] if keep(f, verdict.get(_fkey(f)))]
+                extra = sum(x["cost_usd"] for x in p.get("proofs", []))
                 fh.write(
                     json.dumps(
                         {
                             **r,
                             "findings": kept,
-                            "cost_usd": r["cost_usd"] + extra_cost,
+                            "cost_usd": r["cost_usd"] + extra,
                             "latency_s": r["latency_s"] + p.get("prove_latency_s", 0.0),
-                            "verdicts": verdicts,
+                            "verdicts": list(verdict.values()),
                         }
                     )
                     + "\n"
@@ -221,9 +235,13 @@ def main() -> None:
     r.add_argument("--max-findings", type=int, default=0)
     r.add_argument("--tag", default="")
     r.add_argument("--only-cases", type=Path, help="results jsonl whose case ids to keep")
+    r.add_argument("--held-below", type=float, help="prove only findings under this confidence")
+    r.add_argument("--price-in", type=float, default=1.0)
+    r.add_argument("--price-out", type=float, default=5.0)
     d = sub.add_parser("derive")
     d.add_argument("--source", default="haiku-context")
     d.add_argument("--tag", default="")
+    d.add_argument("--held-below", type=float, help="score the live gate: prove only below this")
     args = ap.parse_args()
     run(args) if args.cmd == "run" else derive(args)
 
