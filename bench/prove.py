@@ -121,6 +121,9 @@ def run(args: argparse.Namespace) -> None:
         and r["case_id"] not in done
         and int(r["case_id"].split("-")[-2], 16) % n == k
     ]
+    if args.only_cases:  # restrict to the cases of an earlier run, for paired comparisons
+        keep = {json.loads(ln)["case_id"] for ln in args.only_cases.read_text().splitlines()}
+        todo = [r for r in todo if r["case_id"] in keep]
     if args.max_findings:  # random sample of whole cases, capped by total findings
         random.Random(7).shuffle(todo)
         picked, total = [], 0
@@ -217,6 +220,7 @@ def main() -> None:
     r.add_argument("--executor", choices=["k8s", "docker"], default="docker")
     r.add_argument("--max-findings", type=int, default=0)
     r.add_argument("--tag", default="")
+    r.add_argument("--only-cases", type=Path, help="results jsonl whose case ids to keep")
     d = sub.add_parser("derive")
     d.add_argument("--source", default="haiku-context")
     d.add_argument("--tag", default="")
