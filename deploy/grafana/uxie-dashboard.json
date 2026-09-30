@@ -2,7 +2,7 @@
   "title": "uxie: PR review agent",
   "uid": "uxie-overview",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "time": {
     "from": "now-7d",
     "to": "now"
@@ -17,13 +17,25 @@
         "name": "prom",
         "label": "Metrics",
         "type": "datasource",
-        "query": "prometheus"
+        "query": "prometheus",
+        "current": {
+          "selected": true,
+          "text": "grafanacloud-prom",
+          "value": "grafanacloud-prom"
+        },
+        "hide": 0
       },
       {
         "name": "tempo",
         "label": "Traces",
         "type": "datasource",
-        "query": "tempo"
+        "query": "tempo",
+        "current": {
+          "selected": true,
+          "text": "grafanacloud-traces",
+          "value": "grafanacloud-traces"
+        },
+        "hide": 0
       }
     ]
   },
