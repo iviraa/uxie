@@ -39,14 +39,21 @@ Rules:
 - Read the files first; call functions with their real signatures.
 - Exercise the exact code path in the report. Keep it small: one to three test functions.
 - No network, no files outside /tmp, no sleeping, deterministic inputs only.
-- Never mock or monkeypatch the code under test, and never assert on the bug itself
-  (assert what correct code does, not what the buggy code does).
+- You may replace the code's external dependencies (clock, randomness, network clients,
+  storage, email or queue senders) with small fakes you write, to observe side effects.
+  Never replace, mock, or monkeypatch the code under test itself.
+- Never assert on the bug itself: assert what correct code does, not what buggy code does.
+- If the report is about a rule that should hold for many inputs (an invariant such as
+  "the total is preserved", idempotence, a round trip, "the input is not modified"),
+  prefer a property-based test. {properties}
 
 Call submit_test with the complete file contents."""
 
 
 def system_prompt(lang: Language) -> str:
-    return SYSTEM_TEMPLATE.format(lang=lang.name, rules=lang.test_rules)
+    return SYSTEM_TEMPLATE.format(
+        lang=lang.name, rules=lang.test_rules, properties=lang.property_hint
+    )
 
 
 SYSTEM = system_prompt(PYTHON)

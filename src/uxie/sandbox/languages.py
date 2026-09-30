@@ -28,6 +28,7 @@ class Language:
     pids: int = 128
     prepare: Callable[[Path, bool], None] = lambda checkout, has_deps: None  # staging hook
     hint: Callable[[str, Path], str] = lambda path, root: ""  # extra context for the prover
+    property_hint: str = ""  # how to write a deterministic property-based test
 
 
 def _python_syntax(code: str) -> str | None:
@@ -53,6 +54,10 @@ PYTHON = Language(
     test_path=lambda path, root: "test_uxie_verify.py",  # root, so `python -m pytest` imports
     syntax_error=_python_syntax,
     deps_env=lambda mount: {"UXIE_DEPS": f"{mount}/site"},  # loaded after stdlib, see sandbox/
+    property_hint=(
+        "Hypothesis is installed (`from hypothesis import given, strategies as st`); it runs "
+        "deterministically with 200 examples, so don't change its settings."
+    ),
 )
 
 _GO_PACKAGE = re.compile(r"^package\s+(\w+)", re.M)
@@ -100,6 +105,10 @@ GO = Language(
     memory="2Gi",
     pids=512,
     hint=_go_hint,
+    property_hint=(
+        "Use the standard library's testing/quick with a fixed seed: "
+        "`quick.Check(f, &quick.Config{MaxCount: 200, Rand: rand.New(rand.NewSource(1))})`."
+    ),
 )
 
 
@@ -136,6 +145,10 @@ TYPESCRIPT = Language(
     memory="1Gi",
     pids=256,
     prepare=_link_node_modules,
+    property_hint=(
+        'fast-check is available (`import fc from "fast-check"`); always pass '
+        "`{ seed: 42, numRuns: 200 }` to fc.assert so runs are deterministic."
+    ),
 )
 
 LANGUAGES: tuple[Language, ...] = (PYTHON, GO, TYPESCRIPT)

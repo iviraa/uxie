@@ -144,3 +144,22 @@ def test_repo_pytest_config_is_ignored(ex, snaps, tmp_path):
         "from lib.mathx import clamp\ndef test_t():\n    assert clamp(-5, 0, 10) == 0\n",
     )
     assert v.head.outcome == "passed", v.head.output_tail
+
+
+def test_property_tests_are_deterministic(tmp_path):
+    if not HAVE_DOCKER:
+        pytest.skip("no docker")
+    repo = tmp_path / "r"
+    (repo / "lib").mkdir(parents=True)
+    (repo / "lib" / "__init__.py").write_text("")
+    (repo / "lib" / "d.py").write_text(
+        "def dedupe(xs):\n    out = []\n    for x in xs:\n        if x not in out:\n"
+        "            out.append(x)\n    return out[:-1] if len(out) > 3 else out\n"
+    )
+    (repo / "test_uxie_verify.py").write_text(
+        "from hypothesis import given, strategies as st\nfrom lib.d import dedupe\n\n"
+        "@given(st.lists(st.integers()))\ndef test_t(xs):\n    assert set(dedupe(xs)) == set(xs)\n"
+    )
+    runs = [DockerExecutor().run(repo, "test_uxie_verify.py", 60) for _ in range(2)]
+    assert [r.outcome for r in runs] == ["failed", "failed"]
+    assert runs[0].failure == runs[1].failure  # same shrunk counterexample every time

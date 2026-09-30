@@ -4,7 +4,10 @@ FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g --no-audit --no-fund tsx@4 \
-    && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin runner
+    && mkdir -p /opt/uxie/tools && cd /opt/uxie/tools && npm init -y >/dev/null \
+    && npm install --no-audit --no-fund fast-check@3 \
+    && ln -s /opt/uxie/tools/node_modules /node_modules \
+    && cd / && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin runner
 
 COPY run_test.py /opt/uxie/run_test.py
 

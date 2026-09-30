@@ -10,3 +10,18 @@ import site
 _deps = os.environ.get("UXIE_DEPS")
 if _deps and os.path.isdir(_deps):
     site.addsitedir(_deps)
+
+try:  # property-based tests must give the same answer on every run, or verdicts could flip
+    from hypothesis import HealthCheck, settings
+
+    settings.register_profile(
+        "uxie",
+        derandomize=True,
+        database=None,
+        deadline=None,
+        max_examples=200,
+        suppress_health_check=list(HealthCheck),
+    )
+    settings.load_profile("uxie")
+except ImportError:
+    pass
