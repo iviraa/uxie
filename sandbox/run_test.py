@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -276,8 +277,50 @@ def run_ts(test_path: str, timeout: int) -> dict:
 RUNNERS = {"python": run_python, "go": run_go, "typescript": run_ts}
 
 
+def _egress_open(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def wait_for_isolation(probe: str = "1.1.1.1:80", limit_s: float = 15.0) -> float | None:
+    """Block until outbound traffic is cut off; None if it never is.
+
+    Kubernetes applies the deny-all NetworkPolicy a moment after a pod starts, so for
+    about a second the network can still be open. No test code runs before this passes.
+    """
+    host, port = probe.rsplit(":", 1)
+    t0 = time.monotonic()
+    blocked = 0
+    while time.monotonic() - t0 < limit_s:
+        if _egress_open(host, int(port)):
+            blocked = 0
+            time.sleep(0.25)
+        else:
+            blocked += 1
+            if blocked >= 2:  # two misses in a row, not a single dropped packet
+                return round(time.monotonic() - t0, 2)
+    return None
+
+
 def main() -> None:
     test_path, timeout = sys.argv[1], int(os.environ.get("TEST_TIMEOUT", "60"))
+    waited = wait_for_isolation(os.environ.get("UXIE_EGRESS_PROBE", "1.1.1.1:80"))
+    if waited is None:  # fail closed: never run untrusted code with a live network
+        print(
+            json.dumps(
+                {
+                    "outcome": "error",
+                    "exit_code": -1,
+                    "duration_s": 0.0,
+                    "failure": "sandbox network was not isolated; test not run",
+                    "output_tail": "",
+                }
+            )
+        )
+        return
     lang = os.environ.get("UXIE_LANG", "python")
     t0 = time.monotonic()
     runner = RUNNERS.get(lang)

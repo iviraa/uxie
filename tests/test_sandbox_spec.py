@@ -48,3 +48,31 @@ def test_decide(head, base, want):
 )
 def test_cant_run(msg, want):
     assert run_test.cant_run(msg) is want
+
+
+def test_isolation_gate_waits_then_passes(monkeypatch):
+    seq = iter([True, True, False, False])  # open for a moment, then cut off
+    monkeypatch.setattr(run_test, "_egress_open", lambda h, p, timeout=0.5: next(seq))
+    monkeypatch.setattr(run_test.time, "sleep", lambda s: None)
+    assert run_test.wait_for_isolation(limit_s=5) is not None
+
+
+def test_isolation_gate_fails_closed(monkeypatch):
+    monkeypatch.setattr(run_test, "_egress_open", lambda h, p, timeout=0.5: True)
+    clock = iter(range(0, 100))
+    monkeypatch.setattr(run_test.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(run_test.time, "sleep", lambda s: None)
+    assert run_test.wait_for_isolation(limit_s=5) is None
+
+
+def test_isolation_gate_ignores_a_single_blip(monkeypatch):
+    seq = iter([False, True, False, False])  # one miss is not enough
+    calls = []
+
+    def probe(h, p, timeout=0.5):
+        calls.append(1)
+        return next(seq)
+
+    monkeypatch.setattr(run_test, "_egress_open", probe)
+    monkeypatch.setattr(run_test.time, "sleep", lambda s: None)
+    assert run_test.wait_for_isolation(limit_s=5) is not None and len(calls) == 4
