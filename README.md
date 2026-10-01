@@ -75,8 +75,9 @@ flowchart LR
 
 Reviews run on AWS Lambda because they are short and bursty. Tests run on Kubernetes because
 running untrusted code needs a fresh, locked-down container for every run, which Lambda does
-not provide. The cluster pulls jobs from SQS, so it needs no inbound network access, and
-KEDA scales it to zero when the queue is empty.
+not provide. The cluster is k3s on a small always-on cloud server (an Oracle Cloud Always
+Free ARM VM). It pulls jobs from SQS, so it needs no inbound network access beyond SSH, and
+KEDA scales the worker to zero when the queue is empty.
 
 ## The sandbox
 
@@ -87,6 +88,10 @@ Every test run is a single-use Kubernetes Job with:
 - a non-root user, no Linux capabilities, and no Kubernetes API token
 - limits on CPU, memory, processes, and time
 - the namespace set to the "restricted" Pod Security standard
+
+Kubernetes applies a network policy a moment after a pod starts, so for about a second a new
+pod can still reach the internet. The sandbox checks for that itself and does not run any
+test code until outbound traffic is blocked; if it never is, the run is refused.
 
 Dependencies are installed in a separate step, and that step never runs package code:
 Python installs prebuilt wheels only, Go only downloads modules, and npm runs with
@@ -120,14 +125,16 @@ history. Results and methods are in [bench/results/summary.md](bench/results/sum
 
 ## Running it
 
-You need an AWS account with Bedrock access, a GitHub App, Docker, k3d, and Helm.
+You need an AWS account with Bedrock access, a GitHub App, Docker, and Helm, plus either an
+Ubuntu server you can SSH into or k3d for a local cluster.
 
 ```sh
 make install
-make deploy          # AWS stack; copy infrastructure/parameters.example.json first
-./deploy/k3d.sh      # local cluster and sandbox images
-make dispatcher      # verification worker, with KEDA
-make check           # lint, types, tests
+make deploy                         # AWS stack; copy infrastructure/parameters.example.json first
+./deploy/remote.sh ubuntu@HOST      # verification cluster on a server
+# or, on your own machine:
+./deploy/k3d.sh && make dispatcher  # local cluster
+make check                          # lint, types, tests
 ```
 
 ## Repository layout
@@ -150,5 +157,5 @@ tests/            unit and integration tests
   but not verified.
 - Some bugs can't be shown in a unit test: race conditions, performance problems, visual UI
   issues, and code that needs a network or a real database. Those stay as review comments.
-- Verification runs on a self-hosted cluster. If it is offline, jobs wait in the queue for
-  up to four days. Confident findings are still posted; held findings are not.
+- Verification runs on a single small server. If it is down, jobs wait in the queue for up
+  to four days. Confident findings are still posted; held findings are not.
